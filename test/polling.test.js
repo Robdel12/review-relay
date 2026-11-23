@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -22,6 +22,15 @@ test('polls new author and reviewer links, remembers deliveries, and archives me
   const repo = 'example/example';
   const authorChat = randomUUID();
   const reviewerChat = randomUUID();
+  const claudeAuthor = randomUUID();
+  const claudeReviewer = randomUUID();
+  const cli = new URL('../cli.js', import.meta.url);
+  const runCLI = (args, input, env = {}) => execFileSync(process.execPath, [cli.pathname, ...args], {
+    encoding: 'utf8', input, env: { ...process.env, PR_CHAT_PORT: String(port), ...env },
+  }).trim();
+  const hook = (session, event, input = {}) => runCLI(['hook', 'claude'], JSON.stringify({
+    session_id: session, hook_event_name: event, ...input,
+  }));
   const legacy = join(temp, 'legacy.json');
   const authorURL = `https://github.com/${repo}/pull/1`;
   await writeFile(legacy, JSON.stringify({ [repo + '#1']: {
@@ -29,7 +38,10 @@ test('polls new author and reviewer links, remembers deliveries, and archives me
     seen: ['review/7'],
   } }));
   const pull = (number, requested_reviewers = []) => ({ number, state: 'open', head: { sha: 'a'.repeat(40) }, requested_reviewers });
-  const github = { pulls: { 1: pull(1), 2: pull(2) }, timeline: { 1: [], 2: [] }, comments: { 1: [] } };
+  const github = {
+    pulls: { 1: pull(1), 2: pull(2), 3: pull(3), 4: pull(4) },
+    timeline: { 1: [], 2: [], 3: [], 4: [] }, comments: { 1: [], 3: [] },
+  };
   async function publish() {
     const swap = fixture + '.tmp';
     await writeFile(swap, JSON.stringify(github));
@@ -42,7 +54,8 @@ const f = JSON.parse(require('node:fs').readFileSync(${JSON.stringify(fixture)},
 const args = process.argv.slice(2);
 if (args[0] === 'pr') {
   const number = Number(args[2].split('/').at(-1));
-  console.log(JSON.stringify({ title: 'Example #' + number, state: 'OPEN', author: { login: number === 1 ? 'rob' : 'other' } }));
+  console.log(JSON.stringify({ title: 'Example #' + number, state: 'OPEN', headRefName: 'feature',
+    createdAt: new Date().toISOString(), author: { login: number % 2 === 1 ? 'rob' : 'other' } }));
 } else {
   const endpoint = args.includes('--jq') ? args[1] : args[3].split('?')[0];
   const parts = endpoint.split('/');
@@ -106,7 +119,20 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
     await start();
     await link(authorURL, authorChat);
     await link(`https://github.com/${repo}/pull/2`, reviewerChat);
-    const initial = await waitFor(view => view.links.length === 2 && view.delivery.lastPoll);
+    execFileSync('/usr/bin/git', ['init', '--quiet', '-b', 'feature', temp]);
+    execFileSync('/usr/bin/git', ['-C', temp, 'remote', 'add', 'origin', `https://github.com/${repo}.git`]);
+    const newPR = hook(claudeAuthor, 'PostToolUse', {
+      cwd: temp, tool_name: 'Bash', tool_input: { command: 'gh pr create' },
+      tool_response: { stdout: `https://github.com/${repo}/pull/3` },
+    });
+    assert.match(JSON.parse(newPR).systemMessage, /linked #3/);
+    const reviewing = hook(claudeReviewer, 'UserPromptSubmit', {
+      prompt: `$pull-request-review https://github.com/${repo}/pull/4`,
+    });
+    assert.match(JSON.parse(reviewing).systemMessage, /linked #4/);
+    const initial = await waitFor(view => view.links.length === 4 && view.delivery.lastPoll);
+    assert.match(runCLI(['link', `https://github.com/${repo}/pull/4`], '', { CLAUDE_CODE_SESSION_ID: claudeReviewer }),
+      new RegExp(`#4 reviewer .* claude:${claudeReviewer}`));
     assert.equal(initial.delivery.mode, 'polling');
     assert.equal(initial.relay.status, 'unpaired');
     const cutover = await fetch(origin + '/api/cutover', {
@@ -119,8 +145,12 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
     github.comments[1].push({ id: 15, created_at: timestamp, user: { login: 'colleague' } });
     github.timeline[2].push({ id: 18, event: 'review_requested', requested_reviewer: { login: 'rob' }, created_at: timestamp });
     github.pulls[2].requested_reviewers.push({ login: 'rob' });
+    github.timeline[3].push(review(30));
+    github.timeline[4].push({ id: 40, event: 'review_requested', requested_reviewer: { login: 'rob' }, created_at: timestamp });
+    github.pulls[4].requested_reviewers.push({ login: 'rob' });
     await publish();
-    await waitFor(view => view.events.filter(event => event.status === 'queued').length === 3);
+    await waitFor(view => view.events.filter(event => event.status === 'queued').length === 3 &&
+      view.events.filter(event => event.provider === 'claude' && event.status === 'pending').length === 2);
     await stop();
     await start();
     await waitFor(view => view.delivery.lastPoll);
@@ -136,6 +166,16 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
     const reviewerMessages = rows.filter(row => row.chat === reviewerChat);
     assert.equal(reviewerMessages.length, 1);
     assert.match(reviewerMessages[0].message, /Keep the review read-only/);
+
+    assert.equal(hook(randomUUID(), 'SessionStart'), '');
+    const authorContext = JSON.parse(hook(claudeAuthor, 'SessionStart')).hookSpecificOutput;
+    assert.equal(authorContext.hookEventName, 'SessionStart');
+    assert.match(authorContext.additionalContext, /\/pull\/3#pullrequestreview-30/);
+    assert.doesNotMatch(authorContext.additionalContext, /\/pull\/4/);
+    assert.equal(hook(claudeAuthor, 'UserPromptSubmit', { prompt: 'Continue' }), '');
+    const reviewContext = JSON.parse(hook(claudeReviewer, 'UserPromptSubmit', { prompt: 'Continue' })).hookSpecificOutput;
+    assert.match(reviewContext.additionalContext, /\/pull\/4.*Keep the review read-only/);
+    await waitFor(view => view.events.filter(event => event.status === 'delivered').length === 2);
 
     const setPolling = minutes => fetch(origin + '/api/polling', {
       method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin }, body: JSON.stringify({ minutes }),

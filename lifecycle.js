@@ -24,6 +24,7 @@ const delivery = createMachine({
     pending: {
       on: {
         accepted: { target: 'queued' },
+        delivered: { target: 'delivered' },
         cancelled: { target: 'skipped' },
         archived: { target: 'archived' },
         rejected: ({ event }) => {
@@ -34,6 +35,7 @@ const delivery = createMachine({
     },
     failed: { on: { retry: { target: 'pending' }, cancelled: { target: 'skipped' } } },
     queued: { type: 'final' },
+    delivered: { type: 'final' },
     skipped: { type: 'final' },
     archived: { type: 'final' },
   },

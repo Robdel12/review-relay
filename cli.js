@@ -1,21 +1,22 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
-import { parsePR, uuid } from './protocol.js';
+import { parsePR, parseChat, chatReference, uuid } from './protocol.js';
+import { init } from './init.js';
 
 const origin = `http://127.0.0.1:${process.env.PR_CHAT_PORT || 4317}`;
 const urlPattern = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/[1-9]\d*(?![\w/])/gi;
 
-async function api(path, body) {
+async function api(path, body, timeout = 24_000) {
   const options = body ? {
     method: 'POST', body: JSON.stringify(body),
     headers: { Origin: origin, 'Content-Type': 'application/json' },
   } : {};
   let response;
   try {
-    response = await fetch(origin + path, { ...options, signal: AbortSignal.timeout(24_000) });
+    response = await fetch(origin + path, { ...options, signal: AbortSignal.timeout(timeout) });
   } catch {
-    throw new Error('PR Chat is not running on this Mac.');
+    throw new Error('Review Relay is unavailable. Run pr-chat start.');
   }
   const data = await response.json();
   if (!response.ok) throw new Error(data.error);
@@ -41,12 +42,12 @@ function prFromPrompt(prompt, cwd) {
   return repo ? `https://github.com/${repo}/pull/${numbers[0]}` : null;
 }
 
-function hookInput(input) {
-  if (!uuid.test(input.session_id)) return null;
+function hookLink(input, provider) {
+  const chat = chatReference({ provider, thread: input.session_id });
   if (input.hook_event_name === 'UserPromptSubmit' && typeof input.prompt === 'string' &&
-      /\$pull-request-review\b/i.test(input.prompt)) {
+      /(?:\$|\/)pull-request-review\b/i.test(input.prompt)) {
     const pr = prFromPrompt(input.prompt, input.cwd);
-    return pr ? { pr, chat: input.session_id, expect: 'reviewer' } : null;
+    return pr ? { pr, chat, expect: 'reviewer' } : null;
   }
   if (input.hook_event_name === 'PostToolUse' && input.tool_name === 'Bash' &&
       typeof input.tool_input?.command === 'string' &&
@@ -56,37 +57,61 @@ function hookInput(input) {
     const cwd = input.tool_input.workdir ?? input.tool_input.cwd ?? input.cwd;
     const worktree = checkout(cwd, ['rev-parse', '--show-toplevel']);
     return urls.length === 1 && worktree
-      ? { pr: urls[0], chat: input.session_id, expect: 'author', auto: 'opened', worktree }
+      ? { pr: urls[0], chat, expect: 'author', auto: 'opened', worktree }
       : null;
   }
   return null;
 }
 
-async function hook() {
+async function hook(provider = 'codex') {
+  let input;
   try {
     let raw = '';
     for await (const chunk of process.stdin) {
       raw += chunk;
       if (raw.length > 2_000_000) return;
     }
-    const fields = hookInput(JSON.parse(raw));
-    if (!fields) return;
-    const result = await api('/api/links', fields);
-    console.log(JSON.stringify({ systemMessage: result.status === 'open'
-      ? `PR Chat linked #${result.number} to this chat.`
-      : `PR Chat recorded #${result.number} as ${result.status}.` }));
-  } catch (error) {
-    console.log(JSON.stringify({ systemMessage: `PR Chat could not link this PR. ${error.message}` }));
+    input = JSON.parse(raw);
+  } catch { return; }
+  if (typeof input?.session_id !== 'string' || !uuid.test(input.session_id) || input.agent_id) return;
+  const event = input.hook_event_name;
+  const fields = hookLink(input, provider);
+  const output = {};
+  if (fields) {
+    try {
+      const result = await api('/api/links', fields);
+      output.systemMessage = result.status === 'open'
+        ? `Review Relay linked #${result.number} to this session.`
+        : `Review Relay recorded #${result.number} as ${result.status}.`;
+    } catch (error) {
+      output.systemMessage = `Review Relay could not link this PR. ${error.message}`;
+    }
   }
+  if (provider === 'claude' && ['SessionStart', 'UserPromptSubmit'].includes(event)) {
+    try {
+      const { messages } = await api('/api/claude/feedback', { session: input.session_id }, 1200);
+      if (messages.length) {
+        output.hookSpecificOutput = {
+          hookEventName: event,
+          additionalContext: ['Review Relay found new GitHub activity in this session. Address it when it fits the user’s current request. Otherwise mention it briefly and continue with their task.', ...messages].join('\n\n'),
+        };
+      }
+    } catch {
+      // Claude can continue if the local app is offline.
+    }
+  }
+  if (Object.keys(output).length) console.log(JSON.stringify(output));
 }
 
 async function main() {
   const [command, ...args] = process.argv.slice(2);
-  if (command === 'hook') return hook();
+  if (command === 'hook' && (args.length === 0 || args[0] === 'claude')) return hook(args[0]);
+  if (command === 'init') return init(args[0] ?? 'both', process.env.PR_CHAT_PORT);
+  if (command === 'start') return import('./app.js');
   if (command === 'list') {
     const data = await api('/api/state');
     for (const link of data.links) {
-      console.log(`${link.status.padEnd(8)} ${link.role.padEnd(8)} https://github.com/${link.repo}/pull/${link.number}  codex://threads/${link.thread}`);
+      console.log(`${link.status.padEnd(8)} ${link.role.padEnd(8)} https://github.com/${link.repo}/pull/${link.number}  ${chatReference(link)}`);
     }
     return;
   }
@@ -94,11 +119,14 @@ async function main() {
     const { positionals: [pr, chat], values } = parseArgs({ args, allowPositionals: true, options: {
       thread: { type: 'string' }, worktree: { type: 'string' }, expect: { type: 'string' },
     } });
+    const session = values.thread ?? chat ?? (process.env.CLAUDE_CODE_SESSION_ID
+      ? `claude:${process.env.CLAUDE_CODE_SESSION_ID}` : process.env.CODEX_THREAD_ID);
+    if (!parseChat(session)) throw new Error('Run this from a linked agent or pass a Codex chat link or claude:<session-id>.');
     const result = await api('/api/links', {
-      pr, chat: values.thread ?? chat ?? process.env.CODEX_THREAD_ID,
+      pr, chat: session,
       worktree: values.worktree, expect: values.expect,
     });
-    console.log(`#${result.number} ${result.role} • ${result.status} • codex://threads/${result.thread}`);
+    console.log(`#${result.number} ${result.role} • ${result.status} • ${chatReference(result)}`);
     return;
   }
   if (command === 'unlink') {
@@ -120,7 +148,7 @@ async function main() {
     console.log(origin);
     return;
   }
-  console.log('pr-chat link <PR URL> [chat link] [--worktree <path>]\npr-chat unlink <PR URL>\npr-chat list\npr-chat dashboard\npr-chat cutover');
+  console.log('pr-chat init [codex|claude|both]\npr-chat start\npr-chat link <PR URL> [session reference] [--worktree <path>]\npr-chat unlink <PR URL>\npr-chat list\npr-chat dashboard\npr-chat cutover');
 }
 
 main().catch(error => {

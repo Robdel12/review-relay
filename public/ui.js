@@ -3,7 +3,7 @@ const activity = { comment: 'Inline feedback', review: 'New review', changes: 'C
   requested: 'Review requested', merged: 'Pull request merged', closed: 'Pull request closed' };
 const dates = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 const linkRole = { author: 'Author', reviewer: 'Reviewer' };
-const statusLabels = { pending: 'Waiting', queued: 'Queued', failed: 'Failed', skipped: 'Skipped',
+const statusLabels = { pending: 'Waiting', queued: 'Queued', delivered: 'Delivered', failed: 'Failed', skipped: 'Skipped',
   archived: 'Archived', stopped: 'Stopped', merged: 'Merged', closed: 'Closed' };
 
 function node(tag, name, content) {
@@ -17,6 +17,22 @@ function anchor(url, content, name) {
   const element = node('a', name, content);
   element.href = url;
   return element;
+}
+
+function resumeButton(link, label, style) {
+  const button = node('button', style, label);
+  button.type = 'button';
+  button.setAttribute('aria-label', `Copy Claude Code resume command for PR #${link.number}`);
+  button.addEventListener('click', async () => {
+    const command = `claude --resume ${link.thread}`;
+    try {
+      await navigator.clipboard.writeText(command);
+      toast('Resume command copied.');
+    } catch {
+      toast(command);
+    }
+  });
+  return button;
 }
 
 async function save(path, data) {
@@ -49,9 +65,12 @@ function row(link) {
   else if (state.delivery.mode === 'push' && !link.subscribed) metadata.append(node('span', null, 'Waiting for relay'));
   title.append(metadata);
   const actions = node('div', 'pr-options');
-  const chat = anchor(`codex://threads/${link.thread}`, 'Open chat', 'chat-link');
-  chat.setAttribute('aria-label', `Open chat for PR #${link.number}`);
-  actions.append(chat);
+  if (link.provider === 'claude') actions.append(resumeButton(link, 'Copy resume command', 'chat-link'));
+  else {
+    const chat = anchor(`codex://threads/${link.thread}`, 'Open chat', 'chat-link');
+    chat.setAttribute('aria-label', `Open chat for PR #${link.number}`);
+    actions.append(chat);
+  }
   if (link.status === 'open') {
     const stop = node('button', 'stop', 'Stop');
     stop.type = 'button';
@@ -70,8 +89,11 @@ function row(link) {
 function eventRow(event) {
   const line = node('article', 'activity-line');
   line.dataset.status = event.status;
-  line.append(anchor(`codex://threads/${event.thread}`, activity[event.kind], 'event-label'));
-  const metadata = node('div', 'meta', `#${event.number} · ${dates.format(event.received)} · ${statusLabels[event.status] ?? event.status}`);
+  const claude = event.provider === 'claude';
+  line.append(claude ? resumeButton(event, activity[event.kind], 'text-button event-label')
+    : anchor(`codex://threads/${event.thread}`, activity[event.kind], 'event-label'));
+  const status = claude && event.status === 'pending' ? 'Waiting for Claude Code' : statusLabels[event.status] ?? event.status;
+  const metadata = node('div', 'meta', `#${event.number} · ${dates.format(event.received)} · ${status}`);
   if (event.status === 'failed') {
     const retry = node('button', 'text-button', 'Retry');
     retry.addEventListener('click', async () => {
@@ -114,7 +136,7 @@ function render(data) {
   control.title = polling && delivery.lastPoll ? `Last check ${dates.format(delivery.lastPoll)}` : 'Settings';
   $('relay-label').textContent = status;
 
-  const message = polling ? (delivery.error ? 'Check your gh login. PR Chat will retry.' : '')
+  const message = polling ? (delivery.error ? 'Check your gh login. Review Relay will retry.' : '')
     : relay.status === 'unpaired' ? 'Pair a Cloudflare relay to receive GitHub events.'
     : relay.status === 'offline' ? 'The relay will reconnect automatically.'
     : relay.status === 'connected' && !relay.lastWebhook ? 'Waiting for the first signed GitHub delivery.'

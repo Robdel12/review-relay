@@ -4,6 +4,17 @@ export const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 export const repoName = /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i;
 export const loginName = /^[a-z0-9-]{1,39}$/i;
 
+export function parseChat(value) {
+  if (typeof value !== 'string') return null;
+  const provider = value.startsWith('claude:') ? 'claude' : 'codex';
+  const thread = value.replace(/^(?:codex:\/\/threads\/|claude:)/, '');
+  return uuid.test(thread) ? { provider, thread: thread.toLowerCase() } : null;
+}
+
+export function chatReference({ provider, thread }) {
+  return provider === 'claude' ? `claude:${thread}` : `codex://threads/${thread}`;
+}
+
 export function parsePR(value) {
   const match = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/([1-9]\d*)\/?$/i.exec(value);
   if (!match || !Number.isSafeInteger(Number(match[2]))) return null;

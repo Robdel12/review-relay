@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>PR Chat</title>
+  <title>Review Relay</title>
   <link rel="stylesheet" href="/styles.css">
   <script type="module" src="/ui.js"></script>
 </head>
 <body>
   <header class="topbar">
     <div class="frame toolbar">
-      <div class="identity"><span class="logomark" aria-hidden="true"><i></i><i></i><i></i></span> PR Chat</div>
+      <div class="identity"><span class="logomark" aria-hidden="true"><i></i><i></i><i></i></span> Review Relay</div>
       <div class="toolbar-actions">
         <button class="relay-button" type="button" id="settings-control" aria-label="Settings">
           <span class="pulse" aria-hidden="true"></span>
@@ -46,8 +46,8 @@
     <form id="link-form">
       <div class="dialog-heading"><h2 id="link-title">Link a pull request</h2><button type="button" class="icon" data-close aria-label="Close">×</button></div>
       <label>GitHub pull request<input name="pr" type="url" required placeholder="https://github.com/org/repo/pull/123" autofocus></label>
-      <label>Codex chat link<input name="chat" required placeholder="codex://threads/…" aria-describedby="chat-hint"></label>
-      <small id="chat-hint">Copy the chat link with <kbd>⌘⌥L</kbd>.</small>
+      <label>Session reference<input name="chat" required placeholder="codex://threads/… or claude:…" aria-describedby="chat-hint"></label>
+      <small id="chat-hint">Copy the Codex chat link with <kbd>⌘⌥L</kbd>, or use <code>claude:&lt;session-id&gt;</code>.</small>
       <details class="link-options" id="link-options">
         <summary>Use a specific worktree</summary>
         <label>Author worktree path<input name="worktree" placeholder="/absolute/path/to/worktree"></label>
