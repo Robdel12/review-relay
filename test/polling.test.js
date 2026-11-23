@@ -4,21 +4,18 @@ import { once } from 'node:events';
 import { mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createServer } from 'node:net';
+import { createInterface } from 'node:readline';
 import { test } from 'node:test';
 import { randomUUID } from 'node:crypto';
 
-test('polls new author and reviewer links, remembers deliveries, and archives merged PRs', { timeout: 25_000 }, async () => {
+test('polls new author and reviewer links, remembers deliveries, and archives merged PRs', { timeout: 25_000 }, async t => {
   const temp = await mkdtemp(join(tmpdir(), 'pr-chat-poll-'));
+  let app, origin;
+  t.after(() => rm(temp, { recursive: true, force: true }));
   const fixture = join(temp, 'github.json');
   const deliveries = join(temp, 'deliveries.jsonl');
   const gh = join(temp, 'gh');
   const codex = join(temp, 'codex');
-  const socket = createServer();
-  await once(socket.listen(0, '127.0.0.1'), 'listening');
-  const { port } = socket.address();
-  await new Promise(resolve => socket.close(resolve));
-  const origin = 'http://127.0.0.1:' + port;
   const repo = 'example/example';
   const authorChat = randomUUID();
   const reviewerChat = randomUUID();
@@ -26,7 +23,7 @@ test('polls new author and reviewer links, remembers deliveries, and archives me
   const claudeReviewer = randomUUID();
   const cli = new URL('../cli.js', import.meta.url);
   const runCLI = (args, input, env = {}) => execFileSync(process.execPath, [cli.pathname, ...args], {
-    encoding: 'utf8', input, env: { ...process.env, PR_CHAT_PORT: String(port), ...env },
+    encoding: 'utf8', input, env: { ...process.env, PR_CHAT_PORT: new URL(origin).port, ...env },
   }).trim();
   const hook = (session, event, input = {}) => runCLI(['hook', 'claude'], JSON.stringify({
     session_id: session, hook_event_name: event, ...input,
@@ -72,17 +69,31 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
 }) + '\\n');
 `, { mode: 0o700 });
 
-  let app;
   async function start() {
     app = spawn(process.execPath, [new URL('../app.js', import.meta.url).pathname], {
-      env: { ...process.env, PR_CHAT_PORT: String(port), PR_CHAT_STATE_DIR: join(temp, 'state'), PR_CHAT_LEGACY: legacy,
+      env: { ...process.env, PR_CHAT_PORT: '0', PR_CHAT_STATE_DIR: join(temp, 'state'), PR_CHAT_LEGACY: legacy,
         PR_CHAT_GH: gh, PR_CHAT_CODEX: codex, PR_CHAT_NOTIFIER: join(temp, 'disabled-notifier'),
         PR_CHAT_BATCH_MS: '100', PR_CHAT_POLL_MS: '150' },
       stdio: ['ignore', 'pipe', 'inherit'],
     });
-    await Promise.race([once(app.stdout, 'data'), once(app, 'exit').then(([status]) => { throw new Error('App exited ' + status); })]);
+    const lines = createInterface({ input: app.stdout });
+    try {
+      const [line] = await Promise.race([
+        once(lines, 'line', { signal: t.signal }),
+        once(app, 'exit', { signal: t.signal }).then(([code]) => { throw new Error('App exited before listening: ' + code); }),
+      ]);
+      const address = /^Review Relay is available at (http:\/\/127\.0\.0\.1:[1-9]\d*)$/.exec(line);
+      assert.ok(address, line);
+      origin = address[1];
+    } finally {
+      lines.close();
+    }
   }
   async function stop() {
+    if (!app.pid || app.exitCode !== null || app.signalCode !== null) {
+      app = null;
+      return;
+    }
     const exited = once(app, 'exit');
     app.kill();
     await exited;
@@ -95,7 +106,9 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
     assert.equal(response.status, 200, await response.text());
   }
   async function waitFor(predicate) {
-    const response = await fetch(origin + '/stream', { signal: AbortSignal.timeout(6000) });
+    const connection = new AbortController();
+    const response = await fetch(origin + '/stream', { signal: AbortSignal.any([t.signal, connection.signal]) });
+    assert.equal(response.status, 200);
     const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
     let buffer = '';
     try {
@@ -111,7 +124,8 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
         }
       }
     } finally {
-      await reader.cancel();
+      connection.abort();
+      reader.releaseLock();
     }
   }
 
@@ -142,15 +156,19 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
     const timestamp = new Date().toISOString();
     const review = id => ({ id, event: 'reviewed', state: 'changes_requested', submitted_at: timestamp, user: { login: 'colleague' } });
     github.timeline[1].push(review(7), review(12));
-    github.comments[1].push({ id: 15, created_at: timestamp, user: { login: 'colleague' } });
     github.timeline[2].push({ id: 18, event: 'review_requested', requested_reviewer: { login: 'rob' }, created_at: timestamp });
     github.pulls[2].requested_reviewers.push({ login: 'rob' });
     github.timeline[3].push(review(30));
     github.timeline[4].push({ id: 40, event: 'review_requested', requested_reviewer: { login: 'rob' }, created_at: timestamp });
     github.pulls[4].requested_reviewers.push({ login: 'rob' });
     await publish();
-    await waitFor(view => view.events.filter(event => event.status === 'queued').length === 3 &&
-      view.events.filter(event => event.provider === 'claude' && event.status === 'pending').length === 2);
+    const hasEvent = (view, number, kind, status) => view.events.some(event =>
+      event.number === number && event.kind === kind && event.status === status);
+    await waitFor(view => hasEvent(view, 1, 'changes', 'queued') && hasEvent(view, 2, 'requested', 'queued') &&
+      hasEvent(view, 3, 'changes', 'pending') && hasEvent(view, 4, 'requested', 'pending'));
+    github.comments[1].push({ id: 15, created_at: new Date().toISOString(), user: { login: 'colleague' } });
+    await publish();
+    await waitFor(view => hasEvent(view, 1, 'comment', 'queued'));
     await stop();
     await start();
     await waitFor(view => view.delivery.lastPoll);
@@ -198,6 +216,5 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
     assert.equal(history.links.find(link => link.number === 2).thread, reviewerChat);
   } finally {
     if (app) await stop();
-    await rm(temp, { recursive: true, force: true });
   }
 });

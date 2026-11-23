@@ -16,7 +16,6 @@ import { watchStatus, deliveryStatus, deliveryOutcome } from './lifecycle.js';
 const run = promisify(execFile);
 const home = homedir();
 const port = Number(process.env.PR_CHAT_PORT || 4317);
-const origin = `http://127.0.0.1:${port}`;
 const stateDirectory = process.env.PR_CHAT_STATE_DIR || join(home, '.local/state/pr-chat');
 const gh = process.env.PR_CHAT_GH || '/opt/homebrew/bin/gh';
 const codex = process.env.PR_CHAT_CODEX || join(home, '.codex/packages/app-server-daemon/current/bin/codex');
@@ -493,7 +492,7 @@ function send(res, status, body = null, type = 'application/json; charset=utf-8'
 
 const server = createServer(async (request, response) => {
   try {
-    if (request.headers.host !== `127.0.0.1:${port}`) return send(response, 403, { error: 'Use the local dashboard URL.' });
+    if (`http://${request.headers.host}` !== origin) return send(response, 403, { error: 'Use the local dashboard URL.' });
     const path = request.url;
     const method = request.method;
     if (method === 'GET' && path === '/api/state') return send(response, 200, view());
@@ -566,6 +565,7 @@ const server = createServer(async (request, response) => {
   }
 });
 await once(server.listen(port, '127.0.0.1'), 'listening');
+const origin = `http://127.0.0.1:${server.address().port}`;
 console.log(`Review Relay is available at ${origin}`);
 connect();
 schedule();

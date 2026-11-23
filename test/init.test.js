@@ -36,7 +36,7 @@ test('init installs both agents without replacing existing hooks, settings or a 
   const handler = claudeHooks.SessionStart[0].hooks[0];
   assert.equal(handler.async, undefined);
   assert.equal(execFileSync('/bin/sh', ['-c', handler.command], {
-    input: '{"hook_event_name":"SessionStart","session_id":"a2329509-ba83-467a-8611-91ea1956feee"}',
+    input: '{}',
     encoding: 'utf8',
   }), '');
 
