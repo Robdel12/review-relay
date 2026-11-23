@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>PR Chat</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/ui.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="frame toolbar">
+      <div class="identity"><span class="logomark" aria-hidden="true"><i></i><i></i><i></i></span> PR Chat</div>
+      <div class="toolbar-actions">
+        <button class="relay-button" type="button" id="settings-control" aria-label="Settings">
+          <span class="pulse" aria-hidden="true"></span>
+          <span id="relay-label">Connecting</span>
+          <span class="chevron" aria-hidden="true"></span>
+        </button>
+        <button type="button" class="primary" id="new-link"><span class="plus" aria-hidden="true">+</span> Link PR</button>
+      </div>
+    </div>
+  </header>
+  <main class="frame">
+    <div class="setup" id="setup" role="status" hidden>
+      <span id="setup-copy"></span>
+      <button type="button" class="text-button" id="setup-action">Relay settings</button>
+    </div>
+    <div class="columns">
+      <section class="pull-requests" aria-labelledby="links-title">
+        <div class="section-heading"><h1 id="links-title">Linked pull requests</h1><span class="count" id="active-count"></span></div>
+        <div id="links"></div>
+        <details class="archive" id="archive" hidden>
+          <summary><span>History</span><span class="count" id="archive-count"></span></summary>
+          <div id="archived-links"></div>
+        </details>
+      </section>
+      <section aria-labelledby="activity-title" class="activity">
+        <div class="section-heading"><h2 id="activity-title">Delivery log</h2></div>
+        <div id="events"></div>
+      </section>
+    </div>
+  </main>
+  <dialog id="link-dialog" aria-labelledby="link-title">
+    <form id="link-form">
+      <div class="dialog-heading"><h2 id="link-title">Link a pull request</h2><button type="button" class="icon" data-close aria-label="Close">×</button></div>
+      <label>GitHub pull request<input name="pr" type="url" required placeholder="https://github.com/org/repo/pull/123" autofocus></label>
+      <label>Codex chat link<input name="chat" required placeholder="codex://threads/…" aria-describedby="chat-hint"></label>
+      <small id="chat-hint">Copy the chat link with <kbd>⌘⌥L</kbd>.</small>
+      <details class="link-options" id="link-options">
+        <summary>Use a specific worktree</summary>
+        <label>Author worktree path<input name="worktree" placeholder="/absolute/path/to/worktree"></label>
+      </details>
+      <p class="error" role="alert"></p>
+      <div class="dialog-actions"><button class="secondary" type="button" data-close>Cancel</button><button class="primary" type="submit">Link PR</button></div>
+    </form>
+  </dialog>
+  <dialog id="settings-dialog" aria-labelledby="settings-title">
+    <div class="dialog-heading"><h2 id="settings-title">Settings</h2><button type="button" class="icon" data-close aria-label="Close">×</button></div>
+    <form id="poll-form">
+      <label for="poll-minutes">Poll interval</label>
+      <div class="poll-controls">
+        <input id="poll-minutes" name="minutes" type="number" min="1" max="60" step="1" required aria-describedby="poll-unit" autofocus>
+        <span id="poll-unit">minutes</span>
+        <button class="primary" type="submit">Save</button>
+      </div>
+      <p class="error" role="alert"></p>
+    </form>
+    <details class="link-options relay-options" id="relay-options">
+      <summary>Push relay</summary>
+      <form id="relay-form">
+        <p class="dialog-copy">Connect a Cloudflare relay for GitHub push delivery.</p>
+        <label>Relay URL<input name="url" type="url" required placeholder="https://pr-chat-relay.example.workers.dev"></label>
+        <label>Bridge token<input name="token" type="password" required autocomplete="off" placeholder="64 hexadecimal characters" minlength="64" maxlength="64"></label>
+        <p class="error" role="alert"></p>
+        <div class="dialog-actions"><button class="primary" type="submit">Pair relay</button></div>
+      </form>
+    </details>
+  </dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>

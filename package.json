@@ -1,0 +1,19 @@
+{
+  "name": "pr-chat",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node app.js",
+    "test": "node --test"
+  },
+  "bin": {
+    "pr-chat": "./cli.js"
+  },
+  "dependencies": {
+    "xstate": "6.0.0-beta.5"
+  }
+}
