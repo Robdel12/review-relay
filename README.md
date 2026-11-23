@@ -15,7 +15,7 @@ Each watch starts with new activity after you link the PR. Approval keeps it ope
 
 Review Relay uses your existing `gh` login to check linked PRs every two minutes. Click the polling status in the toolbar to change the interval. Links and delivery history live in SQLite on your Mac.
 
-Codex queues a follow-up in the linked chat. Claude Code picks up waiting feedback when you open or resume the linked session or send your next prompt. With `terminal-notifier` installed, you also get a macOS notification when feedback starts waiting.
+Review Relay adds a follow-up to the linked Codex chat's queue. If the chat is closed, open it in Codex to pick up the follow-up. This keeps the chat's stop and steer controls available where it runs. Claude Code picks up waiting feedback when you resume the linked session or send your next prompt. With `terminal-notifier` installed, you also get a macOS notification when feedback arrives.
 
 For your own PR, the agent can work through feedback in a clean checkout at the current PR head. For a PR you review, it checks what changed and drafts findings in the session. GitHub reviews, replies, and pushes are yours to send. Keep the dashboard on your Mac and use author watches with repositories and reviewers you trust.
 

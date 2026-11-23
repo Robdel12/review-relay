@@ -98,7 +98,8 @@ if (args[0] === 'pr') {
     `#!${process.execPath}
 const args = process.argv.slice(2);
 require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify({
-  chat: args[args.indexOf('--thread') + 1], message: args[args.indexOf('--message') + 1]
+  chat: args[args.indexOf('--thread') + 1], message: args[args.indexOf('--message') + 1],
+  resume: args.includes('--resume')
 }) + '\\n');
 `,
     { mode: 0o700 },
@@ -277,6 +278,10 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
     assert.equal(final.links.find((link) => link.number === 2).status, 'open');
     const rows = (await readFile(deliveries, 'utf8')).trim().split('\n').map(JSON.parse);
     assert.ok(rows.every((row) => row.chat === authorChat || row.chat === reviewerChat));
+    assert.ok(
+      rows.every((row) => !row.resume),
+      'Follow-ups must leave resume to the chat owner.',
+    );
     const authorMessages = rows
       .filter((row) => row.chat === authorChat)
       .map((row) => row.message)

@@ -383,7 +383,6 @@ async function deliver(link, events) {
       link.thread,
       '--message',
       chatMessage(link, events),
-      '--resume',
     ],
     { timeout: 20_000 },
   );
@@ -475,12 +474,11 @@ async function dispatch() {
         continue;
       }
       try {
-        const { stderr } = await deliver(link, batch);
+        await deliver(link, batch);
         recordAttempt(batch, { type: 'accepted' }, date);
         if (link.role === 'reviewer')
           notify(link, 'Your review was requested. Open the linked chat.');
-        else if (/could not resume/i.test(stderr))
-          notify(link, 'New feedback was queued. Open the linked chat.');
+        else notify(link, 'New feedback was queued. Open the linked chat.');
       } catch (error) {
         console.error(`Chat queue failed for #${link.number}`, error.code ?? error.name);
         recordAttempt(
