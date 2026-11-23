@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-test('init installs both agents without replacing existing hooks, settings or a custom skill', async t => {
+test('init installs both agents without replacing existing hooks, settings or a custom skill', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'review-relay-init-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const codex = join(dir, 'codex settings');
@@ -35,10 +35,13 @@ test('init installs both agents without replacing existing hooks, settings or a 
   assert.deepEqual(claudeHooks.Stop, [original]);
   const handler = claudeHooks.SessionStart[0].hooks[0];
   assert.equal(handler.async, undefined);
-  assert.equal(execFileSync('/bin/sh', ['-c', handler.command], {
-    input: '{}',
-    encoding: 'utf8',
-  }), '');
+  assert.equal(
+    execFileSync('/bin/sh', ['-c', handler.command], {
+      input: '{}',
+      encoding: 'utf8',
+    }),
+    '',
+  );
 
   execFileSync(process.execPath, [cli, 'init'], { env });
   assert.equal(await readFile(hooks, 'utf8'), codexConfig);

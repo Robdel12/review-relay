@@ -22,16 +22,29 @@ export function parsePR(value) {
 }
 
 export function normalizeLink(link) {
-  if (!link || !uuid.test(link.id) || !repoName.test(link.repo) ||
-      !Number.isSafeInteger(link.number) || link.number < 1 ||
-      !loginName.test(link.login) || !['author', 'reviewer'].includes(link.role)) return null;
-  return { id: link.id.toLowerCase(), repo: link.repo.toLowerCase(), number: link.number,
-    login: link.login.toLowerCase(), role: link.role };
+  if (
+    !link ||
+    !uuid.test(link.id) ||
+    !repoName.test(link.repo) ||
+    !Number.isSafeInteger(link.number) ||
+    link.number < 1 ||
+    !loginName.test(link.login) ||
+    !['author', 'reviewer'].includes(link.role)
+  )
+    return null;
+  return {
+    id: link.id.toLowerCase(),
+    repo: link.repo.toLowerCase(),
+    number: link.number,
+    login: link.login.toLowerCase(),
+    role: link.role,
+  };
 }
 
 export function normalizeEvent(type, payload, link) {
   const pr = payload?.pull_request;
-  if (payload?.repository?.full_name?.toLowerCase() !== link.repo || pr?.number !== link.number) return null;
+  if (payload?.repository?.full_name?.toLowerCase() !== link.repo || pr?.number !== link.number)
+    return null;
   const { action } = payload;
   if (type === 'pull_request' && action === 'closed') {
     return { kind: pr.merged === true ? 'merged' : 'closed' };
@@ -39,20 +52,37 @@ export function normalizeEvent(type, payload, link) {
   if (pr.state !== 'open' || pr.draft) return null;
   const head = /^[a-f0-9]{40}$/i.test(pr.head?.sha) ? pr.head.sha : null;
   if (link.role === 'reviewer') {
-    return type === 'pull_request' && action === 'review_requested' &&
+    return type === 'pull_request' &&
+      action === 'review_requested' &&
       payload.requested_reviewer?.login?.toLowerCase() === link.login
-      ? { kind: 'requested', head } : null;
+      ? { kind: 'requested', head }
+      : null;
   }
 
   const author = type === 'pull_request_review' ? payload.review?.user : payload.comment?.user;
-  if (!author?.login || author.type === 'Bot' || author.login.toLowerCase() === link.login) return null;
+  if (!author?.login || author.type === 'Bot' || author.login.toLowerCase() === link.login)
+    return null;
   const state = payload.review?.state;
-  if (type === 'pull_request_review' && action === 'submitted' && Number.isSafeInteger(payload.review?.id) &&
-      (state === 'changes_requested' || (['commented', 'approved'].includes(state) &&
-        typeof payload.review.body === 'string' && payload.review.body.trim()))) {
-    return { kind: state === 'changes_requested' ? 'changes' : 'review', ref: payload.review.id, head };
+  if (
+    type === 'pull_request_review' &&
+    action === 'submitted' &&
+    Number.isSafeInteger(payload.review?.id) &&
+    (state === 'changes_requested' ||
+      (['commented', 'approved'].includes(state) &&
+        typeof payload.review.body === 'string' &&
+        payload.review.body.trim()))
+  ) {
+    return {
+      kind: state === 'changes_requested' ? 'changes' : 'review',
+      ref: payload.review.id,
+      head,
+    };
   }
-  if (type === 'pull_request_review_comment' && action === 'created' && Number.isSafeInteger(payload.comment?.id)) {
+  if (
+    type === 'pull_request_review_comment' &&
+    action === 'created' &&
+    Number.isSafeInteger(payload.comment?.id)
+  ) {
     return { kind: 'comment', ref: payload.comment.id, head };
   }
   return null;
@@ -84,15 +114,24 @@ export async function readBytes(body, maximum) {
 
 export async function verifyWebhook(raw, signature, secret) {
   if (!secret || !/^sha256=[a-f0-9]{64}$/i.test(signature ?? '')) return false;
-  const expected = Uint8Array.from(signature.slice(7).match(/../g), part => Number.parseInt(part, 16));
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
+  const expected = Uint8Array.from(signature.slice(7).match(/../g), (part) =>
+    Number.parseInt(part, 16),
+  );
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['verify'],
+  );
   return crypto.subtle.verify('HMAC', key, expected, raw);
 }
 
 export function safeEqual(left, right) {
-  if (typeof left !== 'string' || typeof right !== 'string' || left.length !== right.length) return false;
+  if (typeof left !== 'string' || typeof right !== 'string' || left.length !== right.length)
+    return false;
   let diff = 0;
-  for (let index = 0; index < left.length; index++) diff |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  for (let index = 0; index < left.length; index++)
+    diff |= left.charCodeAt(index) ^ right.charCodeAt(index);
   return diff === 0;
 }

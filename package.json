@@ -8,12 +8,18 @@
   },
   "scripts": {
     "start": "node app.js",
-    "test": "node --test"
+    "test": "node --test",
+    "lint": "biome lint .",
+    "format": "biome format --write .",
+    "check": "biome ci --error-on-warnings ."
   },
   "bin": {
     "pr-chat": "./cli.js"
   },
   "dependencies": {
     "xstate": "6.0.0-beta.5"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.8"
   }
 }
