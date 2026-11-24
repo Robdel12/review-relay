@@ -8,13 +8,18 @@ const headers = Object.freeze({
   'Referrer-Policy': 'no-referrer',
 });
 
-export function createReviewApp(reviews, { origin = () => undefined, onShutdown } = {}) {
+export function createReviewApp({
+  dependencies = {},
+  origin = () => undefined,
+  onShutdown,
+  cleanup,
+} = {}) {
   return defineCricketApp({
     name: 'Review Relay',
     version: '0.1.0',
     domains: new URL('./domains/', import.meta.url),
     logger: { service: 'review-relay', level: 'warn' },
-    setup: () => ({ services: { reviews } }),
+    setup: () => ({ dependencies, cleanup }),
     responseHeaders: () => headers,
     requestPolicy({ request }) {
       const localOrigin = origin();
@@ -33,4 +38,4 @@ export function createReviewApp(reviews, { origin = () => undefined, onShutdown 
   });
 }
 
-export const app = createReviewApp({});
+export const app = createReviewApp();

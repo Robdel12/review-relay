@@ -1,30 +1,30 @@
 import { EventEmitter, once } from 'node:events';
 import { startCricketWorker } from '@robdel12/cricket/jobs';
-import { dispatchFeedback, pollReviews } from '../domains/reviews/reviews.jobs.js';
-import { createReviewApp } from '../index.js';
+import { dispatchFeedback, notifyAgent, pollReviews } from '../domains/reviews/reviews.jobs.js';
 
 function createWakeQueue() {
   const wake = new EventEmitter();
   const pending = new Map();
   const active = new Map();
+  const key = (envelope) => (envelope.name === notifyAgent.name ? envelope.id : envelope.name);
 
   function next() {
     return [...pending.values()]
-      .filter((envelope) => !active.has(envelope.name))
+      .filter((envelope) => !active.has(key(envelope)))
       .sort((left, right) => left.availableAt.localeCompare(right.availableAt))[0];
   }
 
   function finish(envelope, _result, { attempt }) {
-    const claimed = active.get(envelope.name);
+    const claimed = active.get(key(envelope));
     if (claimed?.id !== envelope.id || attempt !== 1) return { settled: false };
-    active.delete(envelope.name);
+    active.delete(key(envelope));
     wake.emit('change');
     return { settled: true };
   }
 
   return {
     enqueue(envelope) {
-      pending.set(envelope.name, envelope);
+      pending.set(key(envelope), envelope);
       wake.emit('change');
       return { enqueued: true, envelope };
     },
@@ -34,8 +34,8 @@ function createWakeQueue() {
     claim() {
       const envelope = next();
       if (!envelope || Date.parse(envelope.availableAt) > Date.now()) return undefined;
-      pending.delete(envelope.name);
-      active.set(envelope.name, envelope);
+      pending.delete(key(envelope));
+      active.set(key(envelope), envelope);
       return { envelope, attempt: 1 };
     },
     async waitForWork({ signal, waitUntil }) {
@@ -60,23 +60,35 @@ function createWakeQueue() {
   };
 }
 
-export async function startReviewWorker(services) {
+export async function startReviewWorker(app) {
   // Only wakeups live here. Each run rereads SQLite, which is also how startup recovers.
   const driver = createWakeQueue();
-  const worker = await startCricketWorker(createReviewApp(services), { queues: { driver } });
+  const worker = await startCricketWorker(app, { queues: { driver } });
+
+  let stopping = false;
+  function enqueue(job, input, options) {
+    if (stopping) return;
+    worker.jobs.enqueue(job, input, options).catch((error) => {
+      worker.runtime.logger.error('review-relay.schedule.failed', {
+        job: job.name,
+        error: error.name,
+      });
+    });
+  }
 
   function schedule(job, at) {
     if (at === null) driver.cancel(job.name);
-    else
-      worker.jobs.enqueue(job, {}, { runAt: new Date(at) }).catch((error) => {
-        worker.runtime.logger.error('review-relay.schedule.failed', { job: job.name, error });
-      });
+    else enqueue(job, {}, { runAt: new Date(at) });
   }
 
   return Object.freeze({
     pollAt: (at) => schedule(pollReviews, at),
     deliverAt: (at) => schedule(dispatchFeedback, at),
-    run: () => worker.run({ concurrency: 2 }),
-    cleanup: worker.cleanup,
+    notify: (id, reason) => enqueue(notifyAgent, { id, reason }),
+    run: () => worker.run({ concurrency: 4 }),
+    async cleanup() {
+      stopping = true;
+      await worker.cleanup();
+    },
   });
 }

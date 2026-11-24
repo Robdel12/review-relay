@@ -67,8 +67,8 @@ The **Delivery log** shows whether a follow-up is waiting, queued in Codex, hand
 
 ## Development
 
-Cricket runs the HTTP routes and two background jobs, one for polling GitHub and one for delivering feedback. The worker runs inside the app. SQLite keeps the inbox, retry deadlines, and delivery history across restarts.
+The reviews domain lives in `api/domains/reviews`. Cricket loads its routes, service, and two state machines. The machines take the current state and an event and return the next state. The service saves that result in SQLite. Jobs poll GitHub, queue Codex feedback, and send desktop notifications. The worker runs inside the app and reads pending work from SQLite after a restart.
 
-Run `npm run inspect` to see the routes and jobs. Run `npm test` to exercise the watch and delivery flow through the local app. CI runs `npm run check` before the tests to check formatting, lint rules, and the Cricket app.
+Run `npm run inspect` to see the routes, machines, and jobs. Run `npm test` to exercise the watch and delivery flow through the local app. CI runs `npm run check` before the tests to check formatting, lint rules, and the Cricket app.
 
-The state machines use a pinned XState 6 beta. There’s also an [optional push relay](docs/push.md) if you want GitHub webhooks.
+There’s also an [optional push relay](docs/push.md) if you want GitHub webhooks.

@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { defineEndpoint, respond, z } from '@robdel12/cricket';
 import { uuid } from '../../../protocol.js';
+import { InputError } from './input-error.js';
 
 export const dashboardState = defineEndpoint({
   method: 'GET',
@@ -55,7 +56,7 @@ function mutation(path, summary, body, handler, params) {
       try {
         return respond(200, (await handler(services.reviews, input.body, input.params)) ?? success);
       } catch (error) {
-        if (error.name !== 'InputError') throw error;
+        if (!(error instanceof InputError)) throw error;
         return respond(error.status, { error: error.message });
       }
     },

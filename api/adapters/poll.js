@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { normalizeEvent } from './protocol.js';
+import { normalizeEvent } from '../../protocol.js';
 
 function deliveryId(linkId, key) {
   const hash = createHash('sha256').update(`${linkId}:${key}`).digest('hex');
