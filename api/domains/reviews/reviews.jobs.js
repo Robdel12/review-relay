@@ -1,15 +1,17 @@
 import { z } from '@robdel12/cricket';
-import { defineJob, state } from '@robdel12/cricket/jobs';
+import { defineJob, localQueue, state } from '@robdel12/cricket/jobs';
 import { uuid } from '../../../protocol.js';
 import { chatMessage } from './feedback.js';
 
-const queue = Object.freeze({ name: 'review-relay' });
+export const wakeKey = 'wake';
+const queue = localQueue({ name: 'review-relay' });
+const wakeQueue = localQueue({ name: queue.name, coalesceKey: wakeKey });
 const empty = z.strictObject({});
 
 export const pollReviews = defineJob({
   name: 'reviews.poll',
   input: empty,
-  queue,
+  queue: wakeQueue,
   state: state.derived({ from: ['links', 'settings'] }),
   async run({ services: { reviews }, logger }) {
     const links = await reviews.beginPoll();
@@ -42,7 +44,7 @@ export const pollReviews = defineJob({
 export const dispatchFeedback = defineJob({
   name: 'reviews.deliver',
   input: empty,
-  queue,
+  queue: wakeQueue,
   state: state.derived({ from: ['events', 'links'] }),
   async run({ services: { reviews }, logger, jobs }) {
     try {

@@ -17,7 +17,7 @@ Review Relay uses your existing `gh` login to check linked PRs every two minutes
 
 Review Relay adds a follow-up to the linked Codex chat's queue. If the chat is closed, open it in Codex to pick up the follow-up. This keeps the chat's stop and steer controls available where it runs. Claude Code picks up waiting feedback when you resume the linked session or send your next prompt. With `terminal-notifier` installed, you also get a macOS notification when feedback arrives.
 
-For your own PR, the agent can work through feedback in a clean checkout at the current PR head. For a PR you review, it checks what changed and drafts findings in the session. GitHub reviews, replies, and pushes are yours to send. Keep the dashboard on your Mac and use author watches with repositories and reviewers you trust.
+For your own PR, the agent can fix feedback in a clean checkout, run focused tests, and commit and push the fixes to the PR branch. You handle review requests, replies, and thread resolutions. For a PR you review, the agent checks what changed and drafts its findings in the session. Keep the dashboard on your Mac and use author watches with repositories and reviewers you trust.
 
 ### Watch lifecycle
 
@@ -67,7 +67,7 @@ The **Delivery log** shows whether a follow-up is waiting, queued in Codex, hand
 
 ## Development
 
-The reviews domain lives in `api/domains/reviews`. Cricket loads its routes, service, and two state machines. The machines take the current state and an event and return the next state. Cricket manages the SQLite connection. Review Relay runs its inbox migrations during setup. The service saves transitions in a transaction. Jobs poll GitHub, queue Codex feedback, and send desktop notifications. The worker runs inside the app and reads pending work from SQLite after a restart. Its local queue coalesces wakeups for polling and delivery.
+The reviews domain lives in `api/domains/reviews`. Cricket loads its routes, service, and two state machines. The machines take the current state and an event and return the next state. Cricket manages the SQLite connection. Review Relay runs its inbox migrations during setup. The service saves transitions in a transaction. Jobs poll GitHub, queue Codex feedback, and send desktop notifications. The worker runs inside the app and reads pending work from SQLite after a restart. Cricket’s local queue coalesces wakeups for polling and delivery.
 
 Run `npm run inspect` to see the routes, machines, and jobs. Run `npm test` to exercise the watch and delivery flow through the local app. CI runs `npm run check` before the tests to check formatting, lint rules, and the Cricket app.
 

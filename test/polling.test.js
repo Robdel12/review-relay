@@ -351,6 +351,11 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
       .filter((row) => row.chat === authorChat)
       .map((row) => row.message)
       .join('\n');
+    assert.match(authorMessages, /you may commit.*push them to the existing PR branch/);
+    assert.match(
+      authorMessages,
+      /Leave replies, thread resolutions, and review requests to the person running Review Relay/,
+    );
     const feedbackLinks = Array.from(
       authorMessages.matchAll(/#(?:pullrequestreview-\d+|discussion_r\d+)/g),
       (match) => match[0],
@@ -393,6 +398,10 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
     assert.equal(authorContext.hookEventName, 'SessionStart');
     assert.match(authorContext.additionalContext, /\/pull\/3#pullrequestreview-30/);
     assert.doesNotMatch(authorContext.additionalContext, /\/pull\/4/);
+    assert.match(
+      authorContext.additionalContext,
+      /you may commit.*push them to the existing PR branch/,
+    );
     assert.equal(hook(claudeAuthor, 'UserPromptSubmit', { prompt: 'Continue' }), '');
     const reviewContext = JSON.parse(
       hook(claudeReviewer, 'UserPromptSubmit', { prompt: 'Continue' }),
