@@ -183,6 +183,24 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
 
   try {
     await start();
+    const state = await fetch(`${origin}/api/state`);
+    assert.equal(state.status, 200);
+    assert.match(state.headers.get('Content-Security-Policy'), /frame-ancestors 'none'/);
+    await state.json();
+    const untrusted = await fetch(`${origin}/api/links`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'http://example.test' },
+      body: JSON.stringify({ pr: authorURL, chat: authorChat }),
+    });
+    assert.equal(untrusted.status, 403);
+    await untrusted.json();
+    const malformed = await fetch(`${origin}/api/links`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: origin },
+      body: '{',
+    });
+    assert.equal(malformed.status, 400);
+    await malformed.json();
     await link(authorURL, authorChat);
     await link(`https://github.com/${repo}/pull/2`, reviewerChat);
     execFileSync('/usr/bin/git', ['init', '--quiet', '-b', 'feature', temp]);

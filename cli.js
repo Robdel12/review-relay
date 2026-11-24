@@ -22,7 +22,7 @@ async function api(path, body, timeout = 24_000) {
     throw new Error('Review Relay is unavailable. Run pr-chat start.');
   }
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error);
+  if (!response.ok) throw new Error(data.error?.message ?? data.error);
   return data;
 }
 

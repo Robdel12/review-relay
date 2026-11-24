@@ -62,7 +62,7 @@ async function save(path, data) {
     body: JSON.stringify(data),
   });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error);
+  if (!response.ok) throw new Error(result.error?.message ?? result.error);
   return result;
 }
 
