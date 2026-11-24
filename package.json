@@ -18,7 +18,7 @@
     "pr-chat": "./cli.js"
   },
   "dependencies": {
-    "@robdel12/cricket": "https://codeload.github.com/Robdel12/cricket/tar.gz/77157359e062b29ffc3d04669c5a8c12d603f421",
+    "@robdel12/cricket": "https://codeload.github.com/Robdel12/cricket/tar.gz/5e8cd708d82dfa05bf248fc83b5e4b3659305448",
     "better-sqlite3": "13.2.0"
   },
   "devDependencies": {
