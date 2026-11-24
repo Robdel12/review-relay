@@ -60,14 +60,13 @@ function createWakeQueue() {
   };
 }
 
-export async function startReviewWorker(app) {
+export async function startReviewWorker(app, signal) {
   // Only wakeups live here. Each run rereads SQLite, which is also how startup recovers.
   const driver = createWakeQueue();
   const worker = await startCricketWorker(app, { queues: { driver } });
 
-  let stopping = false;
   function enqueue(job, input, options) {
-    if (stopping) return;
+    if (signal.aborted) return;
     worker.jobs.enqueue(job, input, options).catch((error) => {
       worker.runtime.logger.error('review-relay.schedule.failed', {
         job: job.name,
@@ -85,10 +84,7 @@ export async function startReviewWorker(app) {
     pollAt: (at) => schedule(pollReviews, at),
     deliverAt: (at) => schedule(dispatchFeedback, at),
     notify: (id, reason) => enqueue(notifyAgent, { id, reason }),
-    run: () => worker.run({ concurrency: 4 }),
-    async cleanup() {
-      stopping = true;
-      await worker.cleanup();
-    },
+    run: () => worker.run({ signal, concurrency: 4 }),
+    cleanup: worker.cleanup,
   });
 }

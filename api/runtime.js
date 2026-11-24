@@ -26,6 +26,7 @@ export async function startReviewRelay(env = process.env) {
   process.umask(0o077);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   let origin;
+  const workerLifetime = new AbortController();
   const app = createReviewApp({
     database: reviewDatabase(directory),
     origin: () => origin,
@@ -57,10 +58,14 @@ export async function startReviewRelay(env = process.env) {
         },
       };
       // Both runtimes share the HTTP app's store so one SQLite connection serializes transactions.
-      worker = await startReviewWorker(createReviewApp({ setup: () => ({ dependencies }) }));
+      worker = await startReviewWorker(
+        createReviewApp({ setup: () => ({ dependencies }) }),
+        workerLifetime.signal,
+      );
       return { dependencies: { ...dependencies, worker }, cleanup: worker.cleanup };
     },
     onShutdown({ dependencies: { relay } }) {
+      workerLifetime.abort();
       relay.close();
     },
   });
