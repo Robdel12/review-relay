@@ -51,7 +51,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS events (
     id TEXT PRIMARY KEY, link TEXT NOT NULL REFERENCES links(id), kind TEXT NOT NULL,
     ref INTEGER, head TEXT, received INTEGER NOT NULL, ready INTEGER NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0
+    status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, sent_at INTEGER
   );
   CREATE INDEX IF NOT EXISTS ready_events ON events (status, ready);
   CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -63,6 +63,14 @@ if (
     .some((column) => column.name === 'provider')
 ) {
   db.exec("ALTER TABLE links ADD COLUMN provider TEXT NOT NULL DEFAULT 'codex'");
+}
+if (
+  !db
+    .prepare('PRAGMA table_info(events)')
+    .all()
+    .some((column) => column.name === 'sent_at')
+) {
+  db.exec('ALTER TABLE events ADD COLUMN sent_at INTEGER');
 }
 
 const setting = (key) => db.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value;
@@ -140,13 +148,17 @@ function view() {
     .prepare("SELECT * FROM links ORDER BY (status = 'open') DESC, created DESC LIMIT 100")
     .all();
   const events = db
-    .prepare(`SELECT events.id, events.kind, events.status, events.received,
-    links.repo, links.number, links.thread, links.role, links.provider
+    .prepare(`SELECT events.id, events.kind, events.status, events.received, events.sent_at AS sentAt,
+    links.repo, links.number, links.thread, links.role, links.provider, links.status AS watchStatus
     FROM events JOIN links ON links.id = events.link ORDER BY events.received DESC LIMIT 35`)
     .all();
   return {
     links: links.map((link) => ({ ...link, subscribed: accepted.has(link.id) })),
-    events,
+    events: events.map(({ watchStatus, ...event }) => ({
+      ...event,
+      canRetry:
+        watchStatus === 'open' && deliveryStatus(event.status, { type: 'retry' }) !== event.status,
+    })),
     delivery: { mode: deliveryMode(), interval: pollInterval(), lastPoll, error: pollError },
     relay: { status: relayStatus, url: setting('relay-url') ?? null, repo: relayRepo, lastWebhook },
   };
@@ -180,7 +192,8 @@ function stopLink(id, status, at = Date.now()) {
 }
 
 function receive(batch) {
-  const insert = db.prepare('INSERT OR IGNORE INTO events VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)');
+  const insert = db.prepare(`INSERT OR IGNORE INTO events
+    (id, link, kind, ref, head, received, ready, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
   const unread = db.prepare("SELECT 1 FROM events WHERE link = ? AND status = 'pending' LIMIT 1");
   const notifyClaude = new Map();
   const ack = transaction(() => {
@@ -417,7 +430,7 @@ function takeClaudeFeedback(input) {
       ORDER BY events.received LIMIT 25`)
       .all(thread.toLowerCase());
     const messages = [];
-    const acknowledge = db.prepare('UPDATE events SET status = ? WHERE id = ?');
+    const acknowledge = db.prepare('UPDATE events SET status = ?, sent_at = ? WHERE id = ?');
     let length = 0;
     for (const [id, events] of Map.groupBy(entries, (entry) => entry.link)) {
       const message = chatMessage(getLink(id), events);
@@ -425,7 +438,11 @@ function takeClaudeFeedback(input) {
       if (length > 8000) break;
       messages.push(message);
       for (const entry of events)
-        acknowledge.run(deliveryStatus(entry.status, { type: 'delivered' }), entry.id);
+        acknowledge.run(
+          deliveryStatus(entry.status, { type: 'delivered' }),
+          nextSentAt(entry),
+          entry.id,
+        );
     }
     return messages;
   });
@@ -443,14 +460,25 @@ function schedule() {
   if (next !== null) dispatchTimer = setTimeout(dispatch, Math.max(0, next - Date.now()));
 }
 
+function nextSentAt(entry) {
+  return Math.max(Date.now(), (entry.sent_at ?? 0) + 1);
+}
+
 async function dispatch() {
   dispatching = true;
   try {
-    const update = db.prepare('UPDATE events SET status = ?, ready = ?, attempts = ? WHERE id = ?');
+    const update = db.prepare(`UPDATE events SET status = ?, ready = ?, attempts = ?,
+      sent_at = COALESCE(?, sent_at) WHERE id = ?`);
     function recordAttempt(batch, event, now) {
       for (const entry of batch) {
         const { status, ready, attempts } = deliveryOutcome(entry, event, now);
-        update.run(status, ready, attempts, entry.id);
+        update.run(
+          status,
+          ready,
+          attempts,
+          event.type === 'accepted' ? nextSentAt(entry) : null,
+          entry.id,
+        );
       }
     }
     for (;;) {
@@ -469,13 +497,13 @@ async function dispatch() {
       if (link.status !== 'open') {
         for (const entry of batch) {
           const status = deliveryStatus(entry.status, { type: 'cancelled' });
-          update.run(status, date, entry.attempts, entry.id);
+          update.run(status, date, entry.attempts, null, entry.id);
         }
         continue;
       }
       try {
         await deliver(link, batch);
-        recordAttempt(batch, { type: 'accepted' }, date);
+        recordAttempt(batch, { type: 'accepted' }, Date.now());
         if (link.role === 'reviewer')
           notify(link, 'Your review was requested. Open the linked chat.');
         else notify(link, 'New feedback was queued. Open the linked chat.');
@@ -504,6 +532,30 @@ class InputError extends Error {
     super(message);
     this.status = status;
   }
+}
+
+function retryDelivery(id, input) {
+  const event = db.prepare('SELECT * FROM events WHERE id = ?').get(id);
+  if (!event) throw new InputError('Delivery not found.', 404);
+  const link = getLink(event.link);
+  if (link.status !== 'open') throw new InputError('This watch has ended.', 409);
+  const status = deliveryStatus(event.status, { type: 'retry' });
+  if (
+    status === event.status ||
+    (input?.status !== undefined &&
+      (input.status !== event.status || input.sentAt !== event.sent_at))
+  ) {
+    throw new InputError('This delivery changed. Check its latest status.', 409);
+  }
+  db.prepare('UPDATE events SET status = ?, attempts = 0, ready = ? WHERE id = ?').run(
+    status,
+    Date.now(),
+    id,
+  );
+  if (link.provider === 'claude')
+    notify(link, 'GitHub feedback was requeued. Resume the linked Claude Code session.');
+  schedule();
+  publish();
 }
 
 async function gitWorktree(path, repo, branch) {
@@ -791,12 +843,7 @@ const server = createServer(async (request, response) => {
         return send(response, 200, { ok: true });
       }
       if (action?.[1] === 'retry') {
-        const retry = deliveryStatus('failed', { type: 'retry' });
-        db.prepare(
-          "UPDATE events SET status = ?, attempts = 0, ready = ? WHERE id = ? AND status = 'failed'",
-        ).run(retry, Date.now(), action[2]);
-        schedule();
-        publish();
+        retryDelivery(action[2], input);
         return send(response, 200, { ok: true });
       }
     }

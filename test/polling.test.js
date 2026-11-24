@@ -341,6 +341,34 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
     const reviewerMessages = rows.filter((row) => row.chat === reviewerChat);
     assert.equal(reviewerMessages.length, 1);
     assert.match(reviewerMessages[0].message, /Keep the review read-only/);
+    const retry = (event) =>
+      fetch(`${origin}/api/retry/${event.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: origin },
+        body: JSON.stringify({ status: event.status, sentAt: event.sentAt }),
+      });
+    const closedDelivery = final.events.find(
+      (event) => event.number === 1 && event.kind === 'changes',
+    );
+    assert.equal(closedDelivery.canRetry, false);
+    assert.equal((await retry(closedDelivery)).status, 409);
+    const codexDelivery = final.events.find(
+      (event) => event.number === 2 && event.kind === 'requested',
+    );
+    assert.equal(codexDelivery.canRetry, true);
+    assert.ok(codexDelivery.sentAt >= codexDelivery.received);
+    const responses = await Promise.all([retry(codexDelivery), retry(codexDelivery)]);
+    assert.deepEqual(responses.map((response) => response.status).sort(), [200, 409]);
+    const resent = await waitFor((view) =>
+      view.events.some(
+        (event) =>
+          event.id === codexDelivery.id &&
+          event.status === 'queued' &&
+          event.sentAt > codexDelivery.sentAt,
+      ),
+    );
+    const codexMessages = (await readFile(deliveries, 'utf8')).trim().split('\n').map(JSON.parse);
+    assert.deepEqual(codexMessages.slice(rows.length), reviewerMessages);
 
     assert.equal(hook(randomUUID(), 'SessionStart'), '');
     const authorContext = JSON.parse(hook(claudeAuthor, 'SessionStart')).hookSpecificOutput;
@@ -352,8 +380,31 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
       hook(claudeReviewer, 'UserPromptSubmit', { prompt: 'Continue' }),
     ).hookSpecificOutput;
     assert.match(reviewContext.additionalContext, /\/pull\/4.*Keep the review read-only/);
-    await waitFor(
+    const delivered = await waitFor(
       (view) => view.events.filter((event) => event.status === 'delivered').length === 2,
+    );
+    const claudeDelivery = delivered.events.find(
+      (event) => event.number === 4 && event.kind === 'requested',
+    );
+    assert.equal(claudeDelivery.canRetry, true);
+    assert.ok(claudeDelivery.sentAt >= claudeDelivery.received);
+    assert.equal((await retry(claudeDelivery)).status, 200);
+    await waitFor((view) =>
+      view.events.some(
+        (event) => event.id === claudeDelivery.id && event.status === 'pending' && !event.canRetry,
+      ),
+    );
+    const requeuedContext = JSON.parse(
+      hook(claudeReviewer, 'UserPromptSubmit', { prompt: 'Continue' }),
+    ).hookSpecificOutput;
+    assert.deepEqual(requeuedContext, reviewContext);
+    await waitFor((view) =>
+      view.events.some(
+        (event) =>
+          event.id === claudeDelivery.id &&
+          event.status === 'delivered' &&
+          event.sentAt > claudeDelivery.sentAt,
+      ),
     );
 
     const setPolling = (minutes) =>
@@ -371,6 +422,10 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
     const restarted = await waitFor((view) => view.delivery.lastPoll);
     assert.equal(restarted.delivery.interval, 120_000);
     assert.equal(restarted.delivery.mode, 'polling');
+    assert.equal(
+      restarted.events.find((event) => event.id === codexDelivery.id).sentAt,
+      resent.events.find((event) => event.id === codexDelivery.id).sentAt,
+    );
     const reviewerLink = restarted.links.find((link) => link.number === 2);
     const stopWatching = await fetch(`${origin}/api/links/${reviewerLink.id}`, {
       method: 'POST',

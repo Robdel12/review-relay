@@ -63,6 +63,8 @@ pr-chat unlink https://github.com/owner/repo/pull/123
 
 Add `--worktree /absolute/path` if the PR has its own checkout. In the dashboard, **Open chat** opens Codex, and **Copy resume command** gives you the command to reopen a Claude Code session from its checkout.
 
+The **Delivery log** shows whether a follow-up is waiting, queued in Codex, handed to Claude Code, or failed. For an active watch, **Requeue** sends an accepted follow-up again and **Retry** attempts a failed delivery.
+
 Run `npm test` to check the watch and delivery transitions and exercise polling through the local app. Run `npm run format` to format the code or `npm run lint` to check lint rules. CI runs `npm run check` for both before running the tests.
 
 The state machines use a pinned XState 6 beta. There’s also an [optional push relay](docs/push.md) if you want GitHub webhooks.

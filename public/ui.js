@@ -16,8 +16,8 @@ const dates = new Intl.DateTimeFormat(undefined, {
 const linkRole = { author: 'Author', reviewer: 'Reviewer' };
 const statusLabels = {
   pending: 'Waiting',
-  queued: 'Queued',
-  delivered: 'Delivered',
+  queued: 'Queued in Codex',
+  delivered: 'Handed to Claude Code',
   failed: 'Failed',
   skipped: 'Skipped',
   archived: 'Archived',
@@ -134,21 +134,32 @@ function eventRow(event) {
       ? resumeButton(event, activity[event.kind], 'text-button event-label')
       : anchor(`codex://threads/${event.thread}`, activity[event.kind], 'event-label'),
   );
-  const status =
-    claude && event.status === 'pending'
-      ? 'Waiting for Claude Code'
-      : (statusLabels[event.status] ?? event.status);
-  const metadata = node(
-    'div',
-    'meta',
-    `#${event.number} · ${dates.format(event.received)} · ${status}`,
+  let status = statusLabels[event.status] ?? event.status;
+  if (event.status === 'pending') {
+    status = claude ? 'Waiting for Claude Code' : event.sentAt ? 'Requeueing' : 'Waiting';
+  }
+  const metadata = node('div', 'meta');
+  const statusText = node('span', null, status);
+  if (event.sentAt) statusText.title = `Last sent ${dates.format(event.sentAt)}`;
+  metadata.append(
+    node('span', null, `#${event.number} · ${dates.format(event.received)} ·`),
+    statusText,
   );
-  if (event.status === 'failed') {
-    const retry = node('button', 'text-button', 'Retry');
+  if (event.canRetry) {
+    const label = event.status === 'failed' ? 'Retry' : 'Requeue';
+    const retry = node('button', 'text-button', label);
+    retry.type = 'button';
+    retry.setAttribute(
+      'aria-label',
+      `${label} ${activity[event.kind].toLowerCase()} for PR #${event.number}`,
+    );
     retry.addEventListener('click', async () => {
+      retry.disabled = true;
       try {
-        await save(`/api/retry/${event.id}`, {});
+        await save(`/api/retry/${event.id}`, { status: event.status, sentAt: event.sentAt });
+        toast(`Delivery requested for #${event.number}.`);
       } catch (error) {
+        retry.disabled = false;
         toast(error.message);
       }
     });

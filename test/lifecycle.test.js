@@ -11,7 +11,7 @@ test('closed, merged, and stopped watches stay in history', () => {
   }
 });
 
-test('acknowledged deliveries and history entries cannot be retried', () => {
+test('accepted follow-ups can be requeued and history entries stay archived', () => {
   const pending = Object.freeze({ status: 'pending', attempts: 1 });
   assert.deepEqual(deliveryOutcome(pending, { type: 'accepted' }, 1000), {
     status: 'queued',
@@ -21,7 +21,10 @@ test('acknowledged deliveries and history entries cannot be retried', () => {
 
   const fromClosedPR = deliveryStatus('pending', { type: 'archived' });
   assert.equal(fromClosedPR, 'archived');
-  for (const status of ['queued', fromClosedPR, 'skipped']) {
+  for (const status of ['queued', 'delivered']) {
+    assert.equal(deliveryStatus(status, { type: 'retry' }), 'pending');
+  }
+  for (const status of [fromClosedPR, 'skipped', 'pending']) {
     assert.equal(deliveryStatus(status, { type: 'retry' }), status);
   }
 });
