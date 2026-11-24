@@ -292,7 +292,12 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
       submitted_at: timestamp,
       user: { login: 'colleague' },
     });
-    github.timeline[1].push(review(7), review(12));
+    github.timeline[1].push(
+      review(7),
+      review(12),
+      { ...review(13), state: 'approved', body: 'Looks good to me.' },
+      { ...review(14), state: 'commented', body: 'Please cover the empty case.' },
+    );
     github.timeline[2].push({
       id: 18,
       event: 'review_requested',
@@ -316,6 +321,7 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
     await waitFor(
       (view) =>
         hasEvent(view, 1, 'changes', 'queued') &&
+        hasEvent(view, 1, 'review', 'queued') &&
         hasEvent(view, 2, 'requested', 'queued') &&
         hasEvent(view, 3, 'changes', 'pending') &&
         hasEvent(view, 4, 'requested', 'pending'),
@@ -360,7 +366,11 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
       authorMessages.matchAll(/#(?:pullrequestreview-\d+|discussion_r\d+)/g),
       (match) => match[0],
     );
-    assert.deepEqual(feedbackLinks.sort(), ['#discussion_r15', '#pullrequestreview-12']);
+    assert.deepEqual(feedbackLinks.sort(), [
+      '#discussion_r15',
+      '#pullrequestreview-12',
+      '#pullrequestreview-14',
+    ]);
     const reviewerMessages = rows.filter((row) => row.chat === reviewerChat);
     assert.equal(reviewerMessages.length, 1);
     assert.match(reviewerMessages[0].message, /Keep the review read-only/);

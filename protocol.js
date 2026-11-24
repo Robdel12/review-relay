@@ -68,7 +68,7 @@ export function normalizeEvent(type, payload, link) {
     action === 'submitted' &&
     Number.isSafeInteger(payload.review?.id) &&
     (state === 'changes_requested' ||
-      (['commented', 'approved'].includes(state) &&
+      (state === 'commented' &&
         typeof payload.review.body === 'string' &&
         payload.review.body.trim()))
   ) {

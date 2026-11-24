@@ -6,10 +6,10 @@ I kept checking GitHub to see whether someone had responded to a review. The cha
 
 ## What it watches
 
-- **Your PRs.** Changes requested, reviews with written feedback, and new inline review comments from other people.
+- **Your PRs.** Changes requested, comment-only reviews with a note, and new inline review comments from other people.
 - **PRs you review.** Review and re-review requests assigned to your GitHub account.
 
-Each watch starts with new activity after you link the PR. Approval keeps it open for another round. Closing or merging moves the link to History. You can stop a watch anytime.
+Each watch starts with new activity after you link the PR. Approvals are silent and keep the watch open for another round. Closing or merging moves the link to History. You can stop a watch anytime.
 
 ## How it works
 
