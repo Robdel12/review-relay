@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -62,9 +62,9 @@ test('polls new author and reviewer links, remembers deliveries, and archives me
     requested_reviewers,
   });
   const github = {
-    pulls: { 1: pull(1), 2: pull(2), 3: pull(3), 4: pull(4) },
-    timeline: { 1: [], 2: [], 3: [], 4: [] },
-    comments: { 1: [], 3: [] },
+    pulls: { 1: pull(1), 2: pull(2), 3: pull(3), 4: pull(4), 5: pull(5), 7: pull(7), 9: pull(9) },
+    timeline: { 1: [], 2: [], 3: [], 4: [], 5: [], 7: [], 9: [] },
+    comments: { 1: [], 3: [], 5: [], 7: [], 9: [] },
   };
   async function publish() {
     const swap = `${fixture}.tmp`;
@@ -80,7 +80,8 @@ const f = JSON.parse(require('node:fs').readFileSync(${JSON.stringify(fixture)},
 const args = process.argv.slice(2);
 if (args[0] === 'pr') {
   const number = Number(args[2].split('/').at(-1));
-  console.log(JSON.stringify({ title: 'Example #' + number, state: 'OPEN', headRefName: 'feature',
+  const heads = { 5: 'stack-checked-out', 7: 'stack-branch-only', 9: 'feature' };
+  console.log(JSON.stringify({ title: 'Example #' + number, state: 'OPEN', headRefName: heads[number] || 'feature',
     createdAt: new Date().toISOString(), author: { login: number % 2 === 1 ? 'rob' : 'other' } }));
 } else {
   const endpoint = args.includes('--jq') ? args[1] : args[3].split('?')[0];
@@ -204,7 +205,53 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
       prompt: `$pull-request-review https://github.com/${repo}/pull/4`,
     });
     assert.match(JSON.parse(reviewing).systemMessage, /linked #4/);
-    const initial = await waitFor((view) => view.links.length === 4 && view.delivery.lastPoll);
+    const git = (...args) => execFileSync('/usr/bin/git', ['-C', temp, ...args]);
+    git(
+      '-c',
+      'user.name=Test',
+      '-c',
+      'user.email=test@example.com',
+      '-c',
+      'core.hooksPath=/dev/null',
+      'commit',
+      '--quiet',
+      '--allow-empty',
+      '-m',
+      'Start stack',
+    );
+    const stacked = join(temp, 'stacked checkout');
+    git('worktree', 'add', '--quiet', '-b', 'stack-checked-out', stacked);
+    git('branch', 'stack-branch-only');
+    const batch = runCLI(
+      ['hook'],
+      JSON.stringify({
+        session_id: authorChat,
+        hook_event_name: 'PostToolUse',
+        cwd: temp,
+        tool_name: 'Bash',
+        tool_input: {
+          command: 'gh pr create --head stack-checked-out\ngh pr create --head stack-branch-only',
+        },
+        tool_response: [
+          `https://github.com/${repo}/pull/5`,
+          `https://github.com/${repo}/pull/7`,
+          `Stack already contains https://github.com/${repo}/pull/9`,
+        ].join('\n'),
+      }),
+    );
+    assert.match(batch, /linked #5/);
+    assert.match(batch, /linked #7/);
+    const initial = await waitFor((view) => view.links.length >= 6 && view.delivery.lastPoll);
+    const stackLinks = initial.links
+      .filter((link) => [5, 7, 9].includes(link.number))
+      .sort((a, b) => a.number - b.number);
+    assert.deepEqual(
+      stackLinks.map((link) => [link.number, link.thread, link.worktree]),
+      [
+        [5, authorChat, await realpath(stacked)],
+        [7, authorChat, null],
+      ],
+    );
     assert.match(
       runCLI(['link', `https://github.com/${repo}/pull/4`], '', {
         CLAUDE_CODE_SESSION_ID: claudeReviewer,

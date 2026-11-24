@@ -509,17 +509,41 @@ class InputError extends Error {
 async function gitWorktree(path, repo, branch) {
   try {
     const directory = realpathSync(path);
-    const options = { cwd: directory, timeout: 5000 };
-    const invoke = async (...args) => (await run('/usr/bin/git', args, options)).stdout.trim();
-    const top = await invoke('rev-parse', '--show-toplevel');
-    const remote = await invoke('remote', 'get-url', 'origin');
-    const match =
-      /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([\w.-]+\/[\w.-]+)$/i.exec(
-        remote.replace(/\.git$/, ''),
+    const invoke = async (cwd, ...args) =>
+      (await run('/usr/bin/git', args, { cwd, timeout: 5000 })).stdout.trim();
+    async function verifyRoot(root) {
+      const [top, remote] = await Promise.all([
+        invoke(root, 'rev-parse', '--show-toplevel'),
+        invoke(root, 'remote', 'get-url', 'origin'),
+      ]);
+      const match =
+        /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([\w.-]+\/[\w.-]+)$/i.exec(
+          remote.replace(/\.git$/, ''),
+        );
+      if (realpathSync(top) !== root || match?.[1].toLowerCase() !== repo) throw new Error();
+    }
+    await verifyRoot(directory);
+    if (!branch || (await invoke(directory, 'branch', '--show-current')) === branch)
+      return directory;
+    const ref = `refs/heads/${branch}`;
+    const worktrees = await invoke(directory, 'worktree', 'list', '--porcelain', '-z');
+    const matching = worktrees
+      .split('\0\0')
+      .map((record) => record.split('\0'))
+      .filter(
+        (fields) =>
+          fields[0].startsWith('worktree ') &&
+          fields.includes(`branch ${ref}`) &&
+          !fields.some((field) => field.startsWith('prunable')),
       );
-    if (realpathSync(top) !== directory || match?.[1].toLowerCase() !== repo) throw new Error();
-    if (branch && (await invoke('branch', '--show-current')) !== branch) throw new Error();
-    return directory;
+    if (matching.length === 1) {
+      const root = realpathSync(matching[0][0].slice('worktree '.length));
+      await verifyRoot(root);
+      if ((await invoke(root, 'branch', '--show-current')) !== branch) throw new Error();
+      return root;
+    }
+    await invoke(directory, 'show-ref', '--verify', '--quiet', ref);
+    return null;
   } catch {
     throw new InputError('Choose the root of the matching PR checkout.');
   }
@@ -577,6 +601,8 @@ async function linkPR(input) {
       status !== 'open' ||
       !Number.isFinite(created) ||
       Math.abs(Date.now() - created) > 15 * 60_000 ||
+      typeof meta.headRefName !== 'string' ||
+      !meta.headRefName ||
       !input.worktree)
   ) {
     throw new InputError('This command did not open a matching PR recently.', 409);

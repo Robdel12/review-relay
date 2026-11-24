@@ -50,7 +50,7 @@ Open the [dashboard](http://127.0.0.1:4317) to see your watches and their delive
 
 ## Link from a chat or the terminal
 
-Use `$pr-chat` in Codex or `/pr-chat <PR URL>` in Claude Code. You can also run `pr-chat link <PR URL>` from either agent. The hooks can link new PRs opened through `gh pr create` and review prompts with `$pull-request-review` and a single PR reference.
+Use `$pr-chat` in Codex or `/pr-chat <PR URL>` in Claude Code. You can also run `pr-chat link <PR URL>` from either agent. The hooks can link new PRs opened through `gh pr create`, including several opened by one command, and review prompts with `$pull-request-review` and a single PR reference.
 
 From a separate terminal, pass a session reference explicitly.
 

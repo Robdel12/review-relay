@@ -55,7 +55,7 @@ function prFromPrompt(prompt, cwd) {
   return repo ? `https://github.com/${repo}/pull/${numbers[0]}` : null;
 }
 
-function hookLink(input, provider) {
+function hookLinks(input, provider) {
   const chat = chatReference({ provider, thread: input.session_id });
   if (
     input.hook_event_name === 'UserPromptSubmit' &&
@@ -63,7 +63,7 @@ function hookLink(input, provider) {
     /(?:\$|\/)pull-request-review\b/i.test(input.prompt)
   ) {
     const pr = prFromPrompt(input.prompt, input.cwd);
-    return pr ? { pr, chat, expect: 'reviewer' } : null;
+    return pr ? [{ pr, chat, expect: 'reviewer' }] : [];
   }
   if (
     input.hook_event_name === 'PostToolUse' &&
@@ -73,18 +73,28 @@ function hookLink(input, provider) {
       input.tool_input.command,
     )
   ) {
-    const output =
-      typeof input.tool_response === 'string'
-        ? input.tool_response
-        : JSON.stringify(input.tool_response ?? '');
+    const response = input.tool_response;
+    const text = typeof response === 'string' ? response : (response?.stdout ?? response?.output);
+    const output = typeof text === 'string' ? text : JSON.stringify(response ?? '');
     const urls = [...new Set(output.match(urlPattern) ?? [])].filter((url) => parsePR(url));
+    const opened =
+      urls.length <= 1
+        ? urls
+        : [
+            ...new Set(
+              output
+                .split(/\r?\n/)
+                .map((line) => line.trim())
+                .filter((line) => parsePR(line)),
+            ),
+          ];
     const cwd = input.tool_input.workdir ?? input.tool_input.cwd ?? input.cwd;
     const worktree = checkout(cwd, ['rev-parse', '--show-toplevel']);
-    return urls.length === 1 && worktree
-      ? { pr: urls[0], chat, expect: 'author', auto: 'opened', worktree }
-      : null;
+    return worktree
+      ? opened.map((pr) => ({ pr, chat, expect: 'author', auto: 'opened', worktree }))
+      : [];
   }
-  return null;
+  return [];
 }
 
 async function hook(provider = 'codex') {
@@ -102,18 +112,22 @@ async function hook(provider = 'codex') {
   if (typeof input?.session_id !== 'string' || !uuid.test(input.session_id) || input.agent_id)
     return;
   const event = input.hook_event_name;
-  const fields = hookLink(input, provider);
+  const links = hookLinks(input, provider);
   const output = {};
-  if (fields) {
-    try {
-      const result = await api('/api/links', fields);
-      output.systemMessage =
-        result.status === 'open'
-          ? `Review Relay linked #${result.number} to this session.`
-          : `Review Relay recorded #${result.number} as ${result.status}.`;
-    } catch (error) {
-      output.systemMessage = `Review Relay could not link this PR. ${error.message}`;
-    }
+  if (links.length) {
+    const messages = await Promise.all(
+      links.map(async (fields) => {
+        try {
+          const result = await api('/api/links', fields);
+          return result.status === 'open'
+            ? `Review Relay linked #${result.number} to this session.`
+            : `Review Relay recorded #${result.number} as ${result.status}.`;
+        } catch (error) {
+          return `Review Relay could not link #${parsePR(fields.pr).number}. ${error.message}`;
+        }
+      }),
+    );
+    output.systemMessage = messages.join('\n');
   }
   if (provider === 'claude' && ['SessionStart', 'UserPromptSubmit'].includes(event)) {
     try {
