@@ -4,13 +4,13 @@ import { InputError } from './input-error.js';
 import { deliveryTransition, initialWatch, watchTransition } from './reviews.machine.js';
 
 export async function endWatch(rows, id, type, at) {
-  const current = rows.watch(id);
+  const current = await rows.watch(id);
   if (!current) return;
   const next = await watchTransition(current, { type, at });
   if (next.status === current.status) return;
-  rows.endWatch(next.status, next.ended, id);
-  for (const event of rows.cancelableDeliveries(id)) {
-    rows.setDelivery(event.id, await deliveryTransition(event, { type: 'cancelled' }));
+  await rows.endWatch(next.status, next.ended, id);
+  for (const event of await rows.cancelableDeliveries(id)) {
+    await rows.setDelivery(event.id, await deliveryTransition(event, { type: 'cancelled' }));
   }
 }
 
@@ -24,7 +24,7 @@ export function createWatches({ store, github, watchChanged }) {
       );
     const { thread, provider } = chat;
     const sameChat = (link) => link.provider === provider && link.thread.toLowerCase() === thread;
-    const current = await store.read((rows) => rows.openWatch(fields.repo, fields.number));
+    const current = await store.transaction((rows) => rows.openWatch(fields.repo, fields.number));
     if (current && !sameChat(current)) {
       throw new InputError(
         'That PR already has an active chat. Stop the link first to change it.',
@@ -74,25 +74,31 @@ export function createWatches({ store, github, watchChanged }) {
             input.auto === 'opened' ? meta.headRefName : null,
           )
         : (current?.worktree ?? null);
-    const linked = await store.write(async (rows) => {
-      const current = rows.openWatch(fields.repo, fields.number);
+    const linked = await store.transaction(async (rows) => {
+      const current = await rows.openWatch(fields.repo, fields.number);
       if (current && !sameChat(current)) {
         throw new InputError('That PR already has an active chat.', 409);
       }
-      if (status === 'open' && !current && rows.openWatches().length >= 100) {
+      if (status === 'open' && !current && (await rows.openWatches()).length >= 100) {
         throw new InputError('The workspace supports up to 100 active links.');
       }
       if (current) {
         if (status !== 'open') await endWatch(rows, current.id, status, Date.now());
-        rows.updateWatch(meta.title, worktree, current.id);
+        await rows.updateWatch(meta.title, worktree, current.id);
         return rows.watch(current.id);
       }
 
-      const existing = rows.matchingWatch(fields.repo, fields.number, thread, provider, status);
+      const existing = await rows.matchingWatch(
+        fields.repo,
+        fields.number,
+        thread,
+        provider,
+        status,
+      );
       if (existing) return existing;
       const id = randomUUID();
       const created = Date.now();
-      rows.addWatch({
+      await rows.addWatch({
         ...fields,
         id,
         login,
@@ -111,7 +117,7 @@ export function createWatches({ store, github, watchChanged }) {
   }
 
   async function unlinkPR(id) {
-    await store.write((rows) => endWatch(rows, id, 'stopped', Date.now()));
+    await store.transaction((rows) => endWatch(rows, id, 'stopped', Date.now()));
     await watchChanged();
   }
 

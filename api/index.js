@@ -1,4 +1,5 @@
 import { defineCricketApp, respond } from '@robdel12/cricket';
+import { reviewDatabase, stateDirectory } from './database.js';
 
 const headers = Object.freeze({
   'Cache-Control': 'no-store',
@@ -8,18 +9,14 @@ const headers = Object.freeze({
   'Referrer-Policy': 'no-referrer',
 });
 
-export function createReviewApp({
-  dependencies = {},
-  origin = () => undefined,
-  onShutdown,
-  cleanup,
-} = {}) {
+export function createReviewApp({ database, setup, origin = () => undefined, onShutdown } = {}) {
   return defineCricketApp({
     name: 'Review Relay',
     version: '0.1.0',
     domains: new URL('./domains/', import.meta.url),
     logger: { service: 'review-relay', level: 'warn' },
-    setup: () => ({ dependencies, cleanup }),
+    database,
+    setup,
     responseHeaders: () => headers,
     requestPolicy({ request }) {
       const localOrigin = origin();
@@ -38,4 +35,4 @@ export function createReviewApp({
   });
 }
 
-export const app = createReviewApp();
+export const app = createReviewApp({ database: reviewDatabase(stateDirectory()) });

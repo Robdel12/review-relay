@@ -5,14 +5,15 @@ import { startCricketApp } from '@robdel12/cricket';
 import { createAgents } from './adapters/agents.js';
 import { createGitHub } from './adapters/github.js';
 import { createRelay } from './adapters/relay.js';
+import { reviewDatabase, stateDirectory } from './database.js';
 import { createDashboard } from './domains/reviews/dashboard.js';
-import { openReviewStore } from './domains/reviews/reviews.store.js';
+import { createReviewStore, importLegacyWatches } from './domains/reviews/reviews.store.js';
 import { createReviewApp } from './index.js';
 import { startReviewWorker } from './workers/local.js';
 
 export async function startReviewRelay(env = process.env) {
   const home = homedir();
-  const directory = env.PR_CHAT_STATE_DIR || join(home, '.local/state/pr-chat');
+  const directory = stateDirectory(env);
   const legacyPath = env.PR_CHAT_LEGACY || join(home, '.local/state/pr-chat-watch/links.json');
   const legacy = existsSync(legacyPath) ? JSON.parse(readFileSync(legacyPath, 'utf8')) : {};
   const config = Object.freeze({
@@ -24,70 +25,67 @@ export async function startReviewRelay(env = process.env) {
 
   process.umask(0o077);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const store = await openReviewStore(join(directory, 'inbox.sqlite'), legacy);
-  const dashboard = createDashboard((error) =>
-    console.error('Dashboard update failed', error.name),
-  );
-  const relay = createRelay(store);
   let origin;
-  let worker;
-  let server;
-  const dependencies = {
-    config,
-    store,
-    dashboard,
-    relay,
-    github: createGitHub(env.PR_CHAT_GH || '/opt/homebrew/bin/gh'),
-    agents: createAgents({
-      codex: env.PR_CHAT_CODEX || join(home, '.codex/packages/app-server-daemon/current/bin/codex'),
-      notifier: env.PR_CHAT_NOTIFIER || '/opt/homebrew/bin/terminal-notifier',
-      origin: () => origin,
-    }),
-    polling: { checking: false, error: false, lastPoll: null },
-    wake: {
-      pollAt: (at) => worker.pollAt(at),
-      deliverAt: (at) => worker.deliverAt(at),
-      notify: (id, reason) => worker.notify(id, reason),
-    },
-  };
-  let closingStore;
-  const cleanup = () => (closingStore ??= store.close());
+  const app = createReviewApp({
+    database: reviewDatabase(directory),
+    origin: () => origin,
+    async setup({ db, logger }) {
+      await db.migrate.latest();
+      const store = createReviewStore(db);
+      await importLegacyWatches(store, legacy);
 
-  try {
-    worker = await startReviewWorker(createReviewApp({ dependencies }));
-    server = await startCricketApp(
-      createReviewApp({
-        dependencies,
-        origin: () => origin,
-        async onShutdown() {
-          relay.close();
-          dashboard.close();
-          await worker.cleanup();
+      let worker;
+      const dependencies = {
+        config,
+        store,
+        relay: createRelay(store),
+        dashboard: createDashboard((error) =>
+          logger.warn('dashboard.update.failed', { error: error.name }),
+        ),
+        github: createGitHub(env.PR_CHAT_GH || '/opt/homebrew/bin/gh'),
+        agents: createAgents({
+          codex:
+            env.PR_CHAT_CODEX || join(home, '.codex/packages/app-server-daemon/current/bin/codex'),
+          notifier: env.PR_CHAT_NOTIFIER || '/opt/homebrew/bin/terminal-notifier',
+          origin: () => origin,
+        }),
+        polling: { checking: false, error: false, lastPoll: null },
+        wake: {
+          pollAt: (at) => worker.pollAt(at),
+          deliverAt: (at) => worker.deliverAt(at),
+          notify: (id, reason) => worker.notify(id, reason),
         },
-        cleanup,
-      }),
-      { host: '127.0.0.1', port: Number(env.PR_CHAT_PORT || 4317) },
-    );
-    origin = server.origin;
-    const { reviews } = server.services;
+      };
+      // Both runtimes share the HTTP app's store so one SQLite connection serializes transactions.
+      worker = await startReviewWorker(createReviewApp({ setup: () => ({ dependencies }) }));
+      return { dependencies: { ...dependencies, worker }, cleanup: worker.cleanup };
+    },
+    onShutdown({ dependencies: { relay } }) {
+      relay.close();
+    },
+  });
+  const server = await startCricketApp(app, {
+    host: '127.0.0.1',
+    port: Number(env.PR_CHAT_PORT || 4317),
+  });
+  origin = server.origin;
+
+  const { reviews } = server.services;
+  try {
     await reviews.connectRelay();
     await Promise.all([reviews.schedulePoll(0), reviews.scheduleDelivery()]);
-    console.log(`Review Relay is available at ${origin}`);
-    worker.run().catch(async (error) => {
-      console.error('Review worker stopped', error.name);
-      process.exitCode = 1;
-      await server.stop('worker failure').catch((error) => {
-        console.error('Review Relay shutdown failed', error.name);
-      });
-    });
-    return server;
   } catch (error) {
-    try {
-      if (server) await server.stop('startup failure');
-      else await worker?.cleanup();
-    } finally {
-      await cleanup();
-    }
+    await server.stop('startup failure');
     throw error;
   }
+
+  console.log(`Review Relay is available at ${origin}`);
+  server.dependencies.worker.run().catch(async (error) => {
+    server.logger.error('worker.stopped', { error: error.name });
+    process.exitCode = 1;
+    await server.stop('worker failure').catch((error) => {
+      server.logger.error('shutdown.failed', { error: error.name });
+    });
+  });
+  return server;
 }

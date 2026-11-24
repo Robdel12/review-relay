@@ -17,7 +17,9 @@ export function createRelay(store) {
   async function sync() {
     const current = socket;
     if (current?.readyState !== WebSocket.OPEN) return;
-    const links = await store.read((rows) => rows.openWatches().map(normalizeLink));
+    const links = await store.transaction(async (rows) =>
+      (await rows.openWatches()).map(normalizeLink),
+    );
     if (socket === current && current.readyState === WebSocket.OPEN) {
       current.send(JSON.stringify({ type: 'sync', links }));
     }
@@ -36,9 +38,9 @@ export function createRelay(store) {
     disconnect();
     if (reset) delay = 1000;
     const activeGeneration = generation;
-    const { url, token } = await store.read((rows) => ({
-      url: rows.setting('relay-url'),
-      token: rows.setting('relay-token'),
+    const { url, token } = await store.transaction(async (rows) => ({
+      url: await rows.setting('relay-url'),
+      token: await rows.setting('relay-token'),
     }));
     if (generation !== activeGeneration) return;
     accepted = new Set();

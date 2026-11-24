@@ -112,18 +112,6 @@ export async function deliveryTransition({ status, attempts, ready, sent_at }, e
   return Object.freeze({ status: result.snapshot.value, ...result.snapshot.context });
 }
 
-const retryable = new Set(
-  (
-    await Promise.all(
-      delivery.states.map(async (status) => {
-        const result = await deliveryTransition(
-          { status, attempts: 0, ready: 0, sent_at: null },
-          { type: 'retry', at: 0 },
-        );
-        return result.status === 'pending' && status !== result.status ? status : null;
-      }),
-    )
-  ).filter(Boolean),
-);
-
-export const isRetryable = (status) => retryable.has(status);
+export const isRetryable = (status) =>
+  delivery.states.includes(status) &&
+  delivery.machine.resolveState({ value: status }).can({ type: 'retry', at: 0 });

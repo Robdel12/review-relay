@@ -14,35 +14,37 @@ export function createReviewsService({
   polling,
   logger,
 }) {
-  const mode = (rows) => rows.setting('delivery-mode') ?? 'polling';
-  const interval = (rows) => Number(rows.setting('poll-interval-ms') ?? config.pollMs);
+  const mode = async (rows) => (await rows.setting('delivery-mode')) ?? 'polling';
+  const interval = async (rows) =>
+    Number((await rows.setting('poll-interval-ms')) ?? config.pollMs);
   const view = () =>
-    store.read((rows) => ({
-      links: rows.dashboardWatches().map((link) => ({
+    store.transaction(async (rows) => ({
+      links: (await rows.dashboardWatches()).map((link) => ({
         ...link,
         subscribed: link.status === 'open' && relay.subscribed(link.id),
       })),
-      events: rows.dashboardDeliveries().map(({ watchStatus, ...event }) => ({
+      events: (await rows.dashboardDeliveries()).map(({ watchStatus, ...event }) => ({
         ...event,
         canRetry: watchStatus === 'open' && isRetryable(event.status),
       })),
       delivery: {
-        mode: mode(rows),
-        interval: interval(rows),
+        mode: await mode(rows),
+        interval: await interval(rows),
         lastPoll: polling.lastPoll,
         error: polling.error,
       },
-      relay: { ...relay.view(), url: rows.setting('relay-url') ?? null },
+      relay: { ...relay.view(), url: (await rows.setting('relay-url')) ?? null },
     }));
   const changed = () => void dashboard.publish(view);
 
   function scheduleDelivery() {
-    return store.read((rows) => wake.deliverAt(rows.nextCodexDeadline()));
+    return store.transaction(async (rows) => wake.deliverAt(await rows.nextCodexDeadline()));
   }
   function schedulePoll(delay) {
-    return store.read((rows) => {
-      const enabled = !polling.checking && mode(rows) === 'polling' && rows.openWatches().length;
-      wake.pollAt(enabled ? Date.now() + (delay ?? interval(rows)) : null);
+    return store.transaction(async (rows) => {
+      const enabled =
+        !polling.checking && (await mode(rows)) === 'polling' && (await rows.openWatches()).length;
+      wake.pollAt(enabled ? Date.now() + (delay ?? (await interval(rows))) : null);
     });
   }
   async function watchChanged(delay) {
@@ -62,9 +64,9 @@ export function createReviewsService({
     if (!Number.isInteger(minutes) || minutes < 1 || minutes > 60) {
       throw new InputError('Enter a whole number from 1 to 60 minutes.');
     }
-    const updated = await store.write((rows) => {
-      rows.set('poll-interval-ms', String(minutes * 60_000));
-      return { interval: interval(rows) };
+    const updated = await store.transaction(async (rows) => {
+      await rows.set('poll-interval-ms', String(minutes * 60_000));
+      return { interval: await interval(rows) };
     });
     await schedulePoll();
     changed();
@@ -72,12 +74,12 @@ export function createReviewsService({
   }
 
   async function cutover() {
-    await store.write((rows) => {
+    await store.transaction(async (rows) => {
       const { status, lastWebhook } = relay.view();
       if (
         status !== 'connected' ||
         !lastWebhook ||
-        rows.openWatches().some((link) => !relay.subscribed(link.id))
+        (await rows.openWatches()).some((link) => !relay.subscribed(link.id))
       ) {
         throw new InputError(
           'Wait for a signed GitHub delivery and active subscriptions before switching to push.',
@@ -86,7 +88,7 @@ export function createReviewsService({
       }
       if (polling.checking)
         throw new InputError('A GitHub check is running. Try again when it finishes.', 409);
-      rows.set('delivery-mode', 'push');
+      await rows.set('delivery-mode', 'push');
     });
     await schedulePoll();
     changed();
@@ -129,17 +131,17 @@ export function createReviewsService({
     if (!/^[a-f0-9]{64}$/.test(input.token)) {
       throw new InputError('Use the 64-character hexadecimal bridge token.');
     }
-    await store.write((rows) => {
-      rows.set('relay-url', url.origin);
-      rows.set('relay-token', input.token);
+    await store.transaction(async (rows) => {
+      await rows.set('relay-url', url.origin);
+      await rows.set('relay-token', input.token);
     });
     await connectRelay(true);
   }
 
   function beginPoll() {
-    return store.read((rows) => {
-      if (mode(rows) !== 'polling' || polling.checking) return [];
-      const links = rows.openWatches();
+    return store.transaction(async (rows) => {
+      if ((await mode(rows)) !== 'polling' || polling.checking) return [];
+      const links = await rows.openWatches();
       if (links.length) {
         polling.checking = true;
         polling.error = false;
@@ -175,6 +177,6 @@ export function createReviewsService({
     github,
     agents,
     legacy: config.legacy,
-    watchForNotice: (id) => store.read((rows) => rows.watch(id)),
+    watchForNotice: (id) => store.transaction((rows) => rows.watch(id)),
   });
 }

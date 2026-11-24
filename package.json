@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "node app.js",
-    "test": "node --test",
+    "test": "cricket test --reporter spec",
     "lint": "biome lint .",
     "format": "biome format --write .",
     "check": "biome ci --error-on-warnings . && cricket check api/index.js",
@@ -18,7 +18,8 @@
     "pr-chat": "./cli.js"
   },
   "dependencies": {
-    "@robdel12/cricket": "https://codeload.github.com/Robdel12/cricket/tar.gz/357d5924fc5fc9c7d68fbe375539e50d8d9af027"
+    "@robdel12/cricket": "https://codeload.github.com/Robdel12/cricket/tar.gz/357d5924fc5fc9c7d68fbe375539e50d8d9af027",
+    "better-sqlite3": "13.2.0"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.8",

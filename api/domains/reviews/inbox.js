@@ -34,8 +34,8 @@ function incoming(event, ready) {
 
 export function createInbox({ store, batchMs, changed, scheduleDelivery, notify }) {
   async function receive(batch, { fromRelay = false } = {}) {
-    const { ids, alerts } = await store.write(async (rows) => {
-      if (fromRelay && rows.setting('delivery-mode') !== 'push') {
+    const { ids, alerts } = await store.transaction(async (rows) => {
+      if (fromRelay && (await rows.setting('delivery-mode')) !== 'push') {
         return {
           ids: batch.map((event) => event?.id).filter((id) => typeof id === 'string'),
           alerts: [],
@@ -47,7 +47,7 @@ export function createInbox({ store, batchMs, changed, scheduleDelivery, notify 
         const event = incoming(raw, Date.now() + batchMs);
         if (!event) continue;
         ids.push(event.id);
-        const link = rows.watch(event.link);
+        const link = await rows.watch(event.link);
         if (link?.status !== 'open') continue;
         const terminal = event.kind === 'merged' || event.kind === 'closed';
         if (['review', 'comment', 'changes'].includes(event.kind) && !event.ref) continue;
@@ -55,31 +55,38 @@ export function createInbox({ store, batchMs, changed, scheduleDelivery, notify 
           ? (await deliveryTransition(event, { type: 'archived' })).status
           : event.status;
         const firstUnread =
-          !terminal && link.provider === 'claude' && !rows.pendingDelivery(link.id);
-        if (!rows.addDelivery({ ...event, status })) continue;
+          !terminal && link.provider === 'claude' && !(await rows.pendingDelivery(link.id));
+        if (!(await rows.addDelivery({ ...event, status }))) continue;
         if (firstUnread) unread.add(link.id);
         if (terminal) await endWatch(rows, link.id, event.kind, event.received);
-        else rows.postponeNewDeliveries(event.ready, link.id);
+        else await rows.postponeNewDeliveries(event.ready, link.id);
       }
-      return { ids, alerts: [...unread].filter((id) => rows.watch(id).status === 'open') };
+      const alerts = [];
+      for (const id of unread) {
+        if ((await rows.watch(id)).status === 'open') alerts.push(id);
+      }
+      return { ids, alerts };
     });
     for (const id of alerts) notify(id, 'claude-feedback');
     return ids;
   }
 
   async function takeClaudeFeedback({ session }) {
-    const messages = await store.write(async (rows) => {
-      const entries = rows.claudeDeliveries(session.toLowerCase());
+    const messages = await store.transaction(async (rows) => {
+      const entries = await rows.claudeDeliveries(session.toLowerCase());
       const messages = [];
       let length = 0;
       for (const [id, events] of Map.groupBy(entries, (entry) => entry.link)) {
-        const message = chatMessage(rows.watch(id), events);
+        const message = chatMessage(await rows.watch(id), events);
         length += message.length + 2;
         if (length > 8000) break;
         messages.push(message);
         const at = Date.now();
         for (const event of events) {
-          rows.setDelivery(event.id, await deliveryTransition(event, { type: 'delivered', at }));
+          await rows.setDelivery(
+            event.id,
+            await deliveryTransition(event, { type: 'delivered', at }),
+          );
         }
       }
       return messages;
@@ -89,10 +96,10 @@ export function createInbox({ store, batchMs, changed, scheduleDelivery, notify 
   }
 
   async function retryDelivery(id, input) {
-    const link = await store.write(async (rows) => {
-      const event = rows.delivery(id);
+    const link = await store.transaction(async (rows) => {
+      const event = await rows.delivery(id);
       if (!event) throw new InputError('Delivery not found.', 404);
-      const link = rows.watch(event.link);
+      const link = await rows.watch(event.link);
       if (link.status !== 'open') throw new InputError('This watch has ended.', 409);
       if (
         input?.status !== undefined &&
@@ -104,7 +111,7 @@ export function createInbox({ store, batchMs, changed, scheduleDelivery, notify 
       if (next.status === event.status) {
         throw new InputError('This delivery changed. Check its latest status.', 409);
       }
-      rows.setDelivery(id, next);
+      await rows.setDelivery(id, next);
       return link;
     });
     if (link.provider === 'claude') notify(link.id, 'claude-requeued');
@@ -113,19 +120,21 @@ export function createInbox({ store, batchMs, changed, scheduleDelivery, notify 
   }
 
   function nextBatch(at) {
-    return store.read((rows) => {
-      const id = rows.nextCodexLink(at);
-      return id ? { watch: rows.watch(id), events: rows.readyDeliveries(id, at) } : null;
+    return store.transaction(async (rows) => {
+      const id = await rows.nextCodexLink(at);
+      return id
+        ? { watch: await rows.watch(id), events: await rows.readyDeliveries(id, at) }
+        : null;
     });
   }
 
   function recordAttempt(id, batch, outcome) {
-    return store.write(async (rows) => {
-      const closed = rows.watch(id)?.status !== 'open';
+    return store.transaction(async (rows) => {
+      const closed = (await rows.watch(id))?.status !== 'open';
       const event = outcome.type === 'rejected' ? { ...outcome, watchOpen: !closed } : outcome;
       for (const { id } of batch) {
-        const row = rows.delivery(id);
-        rows.setDelivery(id, await deliveryTransition(row, event));
+        const row = await rows.delivery(id);
+        await rows.setDelivery(id, await deliveryTransition(row, event));
       }
     });
   }

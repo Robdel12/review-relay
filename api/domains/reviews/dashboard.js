@@ -2,7 +2,6 @@ const encode = new TextEncoder();
 
 export function createDashboard(onError) {
   const subscribers = new Set();
-  let closed = false;
 
   function frame(view) {
     return encode.encode(`data: ${JSON.stringify(view)}\n\n`);
@@ -14,7 +13,6 @@ export function createDashboard(onError) {
       return new ReadableStream(
         {
           async start(controller) {
-            if (closed) return controller.close();
             subscriber = controller;
             subscribers.add(controller);
             try {
@@ -32,7 +30,7 @@ export function createDashboard(onError) {
       );
     },
     async publish(view) {
-      if (closed || subscribers.size === 0) return;
+      if (subscribers.size === 0) return;
       try {
         const update = frame(await view());
         for (const controller of subscribers) {
@@ -45,11 +43,6 @@ export function createDashboard(onError) {
       } catch (error) {
         onError(error);
       }
-    },
-    close() {
-      closed = true;
-      for (const controller of subscribers) controller.close();
-      subscribers.clear();
     },
   });
 }

@@ -67,7 +67,7 @@ The **Delivery log** shows whether a follow-up is waiting, queued in Codex, hand
 
 ## Development
 
-The reviews domain lives in `api/domains/reviews`. Cricket loads its routes, service, and two state machines. The machines take the current state and an event and return the next state. The service saves that result in SQLite. Jobs poll GitHub, queue Codex feedback, and send desktop notifications. The worker runs inside the app and reads pending work from SQLite after a restart.
+The reviews domain lives in `api/domains/reviews`. Cricket loads its routes, service, and two state machines. The machines take the current state and an event and return the next state. Cricket manages the SQLite connection. Review Relay runs its inbox migrations during setup. The service saves transitions in a transaction. Jobs poll GitHub, queue Codex feedback, and send desktop notifications. The worker runs inside the app and reads pending work from SQLite after a restart. Its local queue coalesces wakeups for polling and delivery.
 
 Run `npm run inspect` to see the routes, machines, and jobs. Run `npm test` to exercise the watch and delivery flow through the local app. CI runs `npm run check` before the tests to check formatting, lint rules, and the Cricket app.
 
