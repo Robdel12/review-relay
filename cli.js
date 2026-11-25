@@ -2,7 +2,14 @@
 import { execFileSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
 import { init } from './init.js';
-import { chatReference, defaultReviewSkill, parseChat, parsePR, uuid } from './protocol.js';
+import {
+  chatReference,
+  defaultReviewSkill,
+  githubRepoFromRemote,
+  parseChat,
+  parsePR,
+  uuid,
+} from './protocol.js';
 
 const origin = `http://127.0.0.1:${process.env.PR_CHAT_PORT || 4317}`;
 const urlPattern = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/[1-9]\d*(?![\w/])/gi;
@@ -47,58 +54,64 @@ function prFromPrompt(prompt, cwd) {
     ...new Set([...prompt.matchAll(/(?:\bPR\s*#?|#)\s*([1-9]\d*)\b/gi)].map((match) => match[1])),
   ];
   if (numbers.length !== 1) return null;
-  const remote = checkout(cwd, ['remote', 'get-url', 'origin']);
-  const repo =
-    /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([\w.-]+\/[\w.-]+)$/i.exec(
-      remote.replace(/\.git$/, ''),
-    )?.[1];
+  const repo = githubRepoFromRemote(checkout(cwd, ['remote', 'get-url', 'origin']));
   return repo ? `https://github.com/${repo}/pull/${numbers[0]}` : null;
 }
 
-async function hookLinks(input, provider) {
-  const chat = chatReference({ provider, thread: input.session_id });
-  if (input.hook_event_name === 'UserPromptSubmit' && typeof input.prompt === 'string') {
-    const mentions = [...input.prompt.matchAll(/(?:^|[\s([`])[$/]([a-z0-9][a-z0-9_-]*)/gi)];
-    if (!mentions.length) return [];
-    const pr = prFromPrompt(input.prompt, input.cwd);
-    if (!pr) return [];
-    const { skill } = await api('/api/review-skill', undefined, 1200).catch(() => ({
-      skill: defaultReviewSkill,
-    }));
-    return mentions.some(([, name]) => name.toLowerCase() === skill.toLowerCase())
-      ? [{ pr, chat, expect: 'reviewer' }]
-      : [];
-  }
+async function linksFromReviewPrompt({ prompt, cwd }, chat) {
+  if (typeof prompt !== 'string') return [];
+  const mentions = [...prompt.matchAll(/(?:^|[\s([`])[$/]([a-z0-9][a-z0-9_-]*)/gi)];
+  if (!mentions.length) return [];
+  const pr = prFromPrompt(prompt, cwd);
+  if (!pr) return [];
+  const { skill } = await api('/api/review-skill', undefined, 1200).catch(() => ({
+    skill: defaultReviewSkill,
+  }));
+  return mentions.some(([, name]) => name.toLowerCase() === skill.toLowerCase())
+    ? [{ pr, chat, expect: 'reviewer' }]
+    : [];
+}
+
+function linksFromPRCreation(input, chat) {
+  const { command, workdir, cwd } = input.tool_input ?? {};
   if (
-    input.hook_event_name === 'PostToolUse' &&
-    input.tool_name === 'Bash' &&
-    typeof input.tool_input?.command === 'string' &&
-    /(?:^|[\s;&|])(?:\/opt\/homebrew\/bin\/)?gh\s+pr\s+create(?:\s|$)/.test(
-      input.tool_input.command,
-    )
-  ) {
-    const response = input.tool_response;
-    const text = typeof response === 'string' ? response : (response?.stdout ?? response?.output);
-    const output = typeof text === 'string' ? text : JSON.stringify(response ?? '');
-    const urls = [...new Set(output.match(urlPattern) ?? [])].filter((url) => parsePR(url));
-    const opened =
-      urls.length <= 1
-        ? urls
-        : [
-            ...new Set(
-              output
-                .split(/\r?\n/)
-                .map((line) => line.trim())
-                .filter((line) => parsePR(line)),
-            ),
-          ];
-    const cwd = input.tool_input.workdir ?? input.tool_input.cwd ?? input.cwd;
-    const worktree = checkout(cwd, ['rev-parse', '--show-toplevel']);
-    return worktree
-      ? opened.map((pr) => ({ pr, chat, expect: 'author', auto: 'opened', worktree }))
-      : [];
+    input.tool_name !== 'Bash' ||
+    typeof command !== 'string' ||
+    !/(?:^|[\s;&|])(?:\/opt\/homebrew\/bin\/)?gh\s+pr\s+create(?:\s|$)/.test(command)
+  )
+    return [];
+
+  const response = input.tool_response;
+  const text = typeof response === 'string' ? response : (response?.stdout ?? response?.output);
+  const output = typeof text === 'string' ? text : JSON.stringify(response ?? '');
+  const urls = [...new Set(output.match(urlPattern) ?? [])].filter((url) => parsePR(url));
+  const opened =
+    urls.length <= 1
+      ? urls
+      : [
+          ...new Set(
+            output
+              .split(/\r?\n/)
+              .map((line) => line.trim())
+              .filter((line) => parsePR(line)),
+          ),
+        ];
+  const worktree = checkout(workdir ?? cwd ?? input.cwd, ['rev-parse', '--show-toplevel']);
+  return worktree
+    ? opened.map((pr) => ({ pr, chat, expect: 'author', auto: 'opened', worktree }))
+    : [];
+}
+
+function hookLinks(input, provider) {
+  const chat = chatReference({ provider, thread: input.session_id });
+  switch (input.hook_event_name) {
+    case 'UserPromptSubmit':
+      return linksFromReviewPrompt(input, chat);
+    case 'PostToolUse':
+      return linksFromPRCreation(input, chat);
+    default:
+      return [];
   }
-  return [];
 }
 
 async function hook(provider = 'codex') {

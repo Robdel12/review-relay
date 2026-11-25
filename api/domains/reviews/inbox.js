@@ -41,7 +41,7 @@ export function createInbox({ store, batchMs, changed, scheduleDelivery, notify,
 
   async function receive(batch, { fromRelay = false } = {}) {
     const { ids, alerts } = await store.transaction(async (rows) => {
-      if (fromRelay && (await rows.setting('delivery-mode')) !== 'push') {
+      if (fromRelay && (await rows.deliveryMode()) !== 'push') {
         return {
           ids: batch.map((event) => event?.id).filter((id) => typeof id === 'string'),
           alerts: [],

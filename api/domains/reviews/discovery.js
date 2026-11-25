@@ -4,10 +4,33 @@ import { prURL } from './feedback.js';
 import { InputError } from './input-error.js';
 import { initialWatch } from './reviews.machine.js';
 
-const setting = 'review-discovery';
+const discoveryKey = 'review-discovery';
 
 async function preference(rows) {
-  return JSON.parse((await rows.setting(setting)) ?? 'null');
+  return JSON.parse((await rows.setting(discoveryKey)) ?? 'null');
+}
+
+function sameTarget(current, next) {
+  if (!current || !next) return current === next;
+  return (
+    current.cwd === next.cwd &&
+    current.login === next.login &&
+    current.provider === next.provider &&
+    current.repo === next.repo
+  );
+}
+
+async function saveReviewLink(rows, watch) {
+  const current = await rows.openWatch(watch.repo, watch.number);
+  if (!current) {
+    await rows.addWatch({ ...watch, ...(await initialWatch('open', watch.created)) });
+    return watch.id;
+  }
+  if (current.thread !== watch.thread) return null;
+  if (current.provider === watch.provider && watch.attach_id) {
+    await rows.setAttachId(current.id, watch.attach_id);
+  }
+  return current.id;
 }
 
 export function createDiscovery({ store, github, agents, interval, wake, watchChanged, changed }) {
@@ -29,52 +52,41 @@ export function createDiscovery({ store, github, agents, interval, wake, watchCh
     });
   }
 
-  async function configure({ provider, cwd: path, repo, skill }) {
+  async function discoveryTarget({ provider, cwd, repo }) {
+    if (provider === 'off') return null;
+    const selectedRepo = repo?.trim().toLowerCase();
+    if (selectedRepo && !repoName.test(selectedRepo)) {
+      throw new InputError('Enter the GitHub repository as owner/repo.');
+    }
+    const checkout = await github.checkout(cwd);
+    if (selectedRepo && selectedRepo !== checkout.repo) {
+      throw new InputError('The repository must match the checkout’s GitHub origin.');
+    }
+    let login;
+    try {
+      login = await github.login();
+      if (!loginName.test(login)) throw new Error('Invalid login');
+    } catch {
+      throw new InputError('Check your GitHub CLI login before enabling fresh review chats.', 502);
+    }
+    return { ...checkout, login, provider };
+  }
+
+  async function configure({ skill, ...target }) {
     const selectedSkill = skill === undefined ? undefined : skill.trim() || defaultReviewSkill;
     if (selectedSkill && !skillName.test(selectedSkill)) {
       throw new InputError('Enter a skill name using letters, numbers, hyphens, or underscores.');
     }
-    const selectedRepo = repo?.trim().toLowerCase();
-    let next = null;
-    if (provider !== 'off') {
-      if (selectedRepo && !repoName.test(selectedRepo)) {
-        throw new InputError('Enter the GitHub repository as owner/repo.');
-      }
-      const checkout = await github.checkout(path);
-      if (selectedRepo && selectedRepo !== checkout.repo) {
-        throw new InputError('The repository must match the checkout’s GitHub origin.');
-      }
-      let login;
-      try {
-        login = await github.login();
-        if (!loginName.test(login)) throw new Error('Invalid login');
-      } catch {
-        throw new InputError(
-          'Check your GitHub CLI login before enabling fresh review chats.',
-          502,
-        );
-      }
-      next = { ...checkout, login, provider };
-    }
-
-    const updated = await store.transaction(async (rows) => {
+    const next = await discoveryTarget(target);
+    const targetChanged = await store.transaction(async (rows) => {
       if (selectedSkill && selectedSkill !== (await rows.reviewSkill())) {
         await rows.setReviewSkill(selectedSkill);
       }
-      const current = await preference(rows);
-      if (!next && !current) return false;
-      if (
-        next &&
-        current?.cwd === next.cwd &&
-        current.login === next.login &&
-        current.provider === next.provider &&
-        current.repo === next.repo
-      )
-        return false;
-      await rows.set(setting, JSON.stringify(next && { ...next, since: Date.now() }));
+      if (sameTarget(await preference(rows), next)) return false;
+      await rows.set(discoveryKey, JSON.stringify(next && { ...next, since: Date.now() }));
       return true;
     });
-    if (updated) {
+    if (targetChanged) {
       lastCheck = null;
       error = false;
       await schedule(0);
@@ -82,7 +94,7 @@ export function createDiscovery({ store, github, agents, interval, wake, watchCh
     changed();
   }
 
-  async function start(config, number) {
+  async function startReview(config, number) {
     const { repo, login, cwd, provider } = config;
     const fields = { repo, number };
     if (await store.transaction((rows) => rows.trackedReview(fields))) return null;
@@ -93,7 +105,7 @@ export function createDiscovery({ store, github, agents, interval, wake, watchCh
     const id = randomUUID();
     const selectedSkill = await store.transaction(async (rows) => {
       if (JSON.stringify(await preference(rows)) !== JSON.stringify(config)) return false;
-      if ((await rows.openWatches()).length >= 100 || (await rows.trackedReview(fields))) {
+      if (!(await rows.hasWatchCapacity()) || (await rows.trackedReview(fields))) {
         return false;
       }
       await rows.addReviewStart({ ...fields, created, status: 'starting' });
@@ -109,27 +121,22 @@ export function createDiscovery({ store, github, agents, interval, wake, watchCh
         title: `🔎 PR: ${pr.title} (#${number})`,
         prompt: `Review PR ${prURL(fields)}. Confirm GitHub still requests my review. Keep the review read-only and report your findings in this chat. Ask me before posting to GitHub or changing the pull request.`,
       });
+      const watch = {
+        ...fields,
+        id,
+        login,
+        thread,
+        title: pr.title,
+        worktree: null,
+        role: 'reviewer',
+        provider,
+        attach_id: attachId ?? null,
+        created,
+      };
       const linked = await store.transaction(async (rows) => {
-        const current = await rows.openWatch(repo, number);
-        if (current?.thread === thread && current.provider === provider) {
-          if (attachId) await rows.setAttachId(current.id, attachId);
-        } else if (!current) {
-          await rows.addWatch({
-            ...fields,
-            id,
-            login,
-            thread,
-            title: pr.title,
-            worktree: null,
-            role: 'reviewer',
-            provider,
-            attach_id: attachId ?? null,
-            created,
-            ...(await initialWatch('open', created)),
-          });
-        }
+        const linkedId = await saveReviewLink(rows, watch);
         await rows.setReviewStart(fields, 'started');
-        return current?.thread === thread ? current.id : current ? null : id;
+        return linkedId;
       });
       await watchChanged();
       return linked;
@@ -157,7 +164,7 @@ export function createDiscovery({ store, github, agents, interval, wake, watchCh
       let failed = false;
       for (const number of numbers) {
         try {
-          const id = await start(config, number);
+          const id = await startReview(config, number);
           if (id) await notify(id);
         } catch {
           failed = true;

@@ -2,13 +2,15 @@ import { randomUUID } from 'node:crypto';
 import { defaultReviewSkill, normalizeLink, uuid } from '../../../protocol.js';
 
 const reviewSkillKey = 'review-skill';
+const deliveryModeKey = 'delivery-mode';
+export const maxActiveWatches = 100;
 
 function queries(db) {
   const settings = () => db('settings');
   const watches = () => db('links');
   const reviewStarts = () => db('review_starts');
   const deliveries = () => db('events');
-  const openWatches = () => watches().where({ status: 'open' }).orderBy('created', 'desc');
+  const activeWatches = () => watches().where({ status: 'open' });
   const codexPending = () =>
     deliveries()
       .join('links', 'links.id', 'events.link')
@@ -21,6 +23,8 @@ function queries(db) {
   return {
     setting,
     set,
+    deliveryMode: async () => (await setting(deliveryModeKey)) ?? 'polling',
+    setDeliveryMode: (mode) => set(deliveryModeKey, mode),
     reviewSkill: async () => (await setting(reviewSkillKey)) ?? defaultReviewSkill,
     setReviewSkill: (name) => set(reviewSkillKey, name),
     async trackedReview(fields) {
@@ -45,8 +49,13 @@ function queries(db) {
     setAttachId: (id, attach_id) => watches().where({ id }).update({ attach_id }),
     addWatch: (watch) => watches().insert(watch).onConflict().ignore(),
     watch: (id) => watches().where({ id }).first(),
-    openWatch: (repo, number) => openWatches().where({ repo, number }).first(),
-    openWatches,
+    openWatch: (repo, number) => activeWatches().where({ repo, number }).first(),
+    openWatches: () => activeWatches().orderBy('created', 'desc'),
+    hasOpenWatches: async () => Boolean(await activeWatches().first('id')),
+    async hasWatchCapacity() {
+      const { count } = await activeWatches().count({ count: 'id' }).first();
+      return count < maxActiveWatches;
+    },
     matchingWatch: (repo, number, thread, provider, status) =>
       watches().where({ repo, number, thread, provider, status }).first(),
     updateWatch: (title, worktree, id) => watches().where({ id }).update({ title, worktree }),

@@ -2,34 +2,31 @@ import { execFile } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { promisify } from 'node:util';
-import { loginName } from '../../protocol.js';
+import { githubRepoFromRemote, loginName } from '../../protocol.js';
 import { prURL } from '../domains/reviews/feedback.js';
 import { InputError } from '../domains/reviews/input-error.js';
 import { pollLink } from './poll.js';
 
 const run = promisify(execFile);
 
-const invoke = async (cwd, ...args) =>
+const git = async (cwd, ...args) =>
   (await run('/usr/bin/git', args, { cwd, timeout: 5000 })).stdout.trim();
 
-async function readCheckout(root) {
-  const [top, remote] = await Promise.all([
-    invoke(root, 'rev-parse', '--show-toplevel'),
-    invoke(root, 'remote', 'get-url', 'origin'),
+async function readCheckout(path) {
+  const cwd = realpathSync(path);
+  const [root, remote] = await Promise.all([
+    git(cwd, 'rev-parse', '--show-toplevel'),
+    git(cwd, 'remote', 'get-url', 'origin'),
   ]);
-  const match =
-    /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([\w.-]+\/[\w.-]+)$/i.exec(
-      remote.replace(/\.git$/, ''),
-    );
-  if (realpathSync(top) !== root || !match) throw new Error('Invalid checkout');
-  return match[1].toLowerCase();
+  const repo = githubRepoFromRemote(remote);
+  if (realpathSync(root) !== cwd || !repo) throw new Error('Invalid checkout');
+  return { cwd, repo: repo.toLowerCase() };
 }
 
 async function checkout(path) {
   try {
     if (!isAbsolute(path)) throw new Error('Expected absolute path');
-    const cwd = realpathSync(path);
-    return { cwd, repo: await readCheckout(cwd) };
+    return await readCheckout(path);
   } catch {
     throw new InputError('Enter the absolute path to a GitHub checkout with an origin remote.');
   }
@@ -37,12 +34,13 @@ async function checkout(path) {
 
 async function gitWorktree(path, repo, branch) {
   try {
-    const directory = realpathSync(path);
-    if ((await readCheckout(directory)) !== repo) throw new Error();
-    if (!branch || (await invoke(directory, 'branch', '--show-current')) === branch)
-      return directory;
+    const primary = await readCheckout(path);
+    if (primary.repo !== repo) throw new Error();
+    if (!branch || (await git(primary.cwd, 'branch', '--show-current')) === branch) {
+      return primary.cwd;
+    }
     const ref = `refs/heads/${branch}`;
-    const worktrees = await invoke(directory, 'worktree', 'list', '--porcelain', '-z');
+    const worktrees = await git(primary.cwd, 'worktree', 'list', '--porcelain', '-z');
     const matching = worktrees
       .split('\0\0')
       .map((record) => record.split('\0'))
@@ -53,12 +51,14 @@ async function gitWorktree(path, repo, branch) {
           !fields.some((field) => field.startsWith('prunable')),
       );
     if (matching.length === 1) {
-      const root = realpathSync(matching[0][0].slice('worktree '.length));
-      if ((await readCheckout(root)) !== repo) throw new Error();
-      if ((await invoke(root, 'branch', '--show-current')) !== branch) throw new Error();
-      return root;
+      const linkedCheckout = await readCheckout(matching[0][0].slice('worktree '.length));
+      if (linkedCheckout.repo !== repo) throw new Error();
+      if ((await git(linkedCheckout.cwd, 'branch', '--show-current')) !== branch) {
+        throw new Error();
+      }
+      return linkedCheckout.cwd;
     }
-    await invoke(directory, 'show-ref', '--verify', '--quiet', ref);
+    await git(primary.cwd, 'show-ref', '--verify', '--quiet', ref);
     return null;
   } catch {
     throw new InputError('Choose the root of the matching PR checkout.');
@@ -96,16 +96,17 @@ export function createGitHub(gh) {
         event.event === 'review_requested' &&
         event.requested_reviewer?.login?.toLowerCase() === login,
     );
-    if (
-      !(Date.parse(requested?.created_at) >= since) ||
-      timeline.some(
-        (event) =>
-          event.event === 'reviewed' &&
-          event.submitted_at &&
-          event.user?.login?.toLowerCase() === login,
-      )
-    )
-      return null;
+    const requestedSinceEnabled = Date.parse(requested?.created_at) >= since;
+    if (!requestedSinceEnabled) return null;
+
+    const alreadyReviewed = timeline.some(
+      (event) =>
+        event.event === 'reviewed' &&
+        event.submitted_at &&
+        event.user?.login?.toLowerCase() === login,
+    );
+    if (alreadyReviewed) return null;
+
     const pr = await api(`repos/${repo}/pulls/${number}`);
     if (
       pr.number !== number ||

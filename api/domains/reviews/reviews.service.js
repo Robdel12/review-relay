@@ -15,7 +15,6 @@ export function createReviewsService({
   polling,
   logger,
 }) {
-  const mode = async (rows) => (await rows.setting('delivery-mode')) ?? 'polling';
   const interval = async (rows) =>
     Number((await rows.setting('poll-interval-ms')) ?? config.pollMs);
   const view = () =>
@@ -29,7 +28,7 @@ export function createReviewsService({
         canRetry: watchStatus === 'open' && isRetryable(event.status),
       })),
       delivery: {
-        mode: await mode(rows),
+        mode: await rows.deliveryMode(),
         interval: await interval(rows),
         lastPoll: polling.lastPoll,
         error: polling.error,
@@ -46,7 +45,9 @@ export function createReviewsService({
   function schedulePoll(delay) {
     return store.transaction(async (rows) => {
       const enabled =
-        !polling.checking && (await mode(rows)) === 'polling' && (await rows.openWatches()).length;
+        !polling.checking &&
+        (await rows.deliveryMode()) === 'polling' &&
+        (await rows.hasOpenWatches());
       wake.pollAt(enabled ? Date.now() + (delay ?? (await interval(rows))) : null);
     });
   }
@@ -102,7 +103,7 @@ export function createReviewsService({
       }
       if (polling.checking)
         throw new InputError('A GitHub check is running. Try again when it finishes.', 409);
-      await rows.set('delivery-mode', 'push');
+      await rows.setDeliveryMode('push');
     });
     await schedulePoll();
     changed();
@@ -154,7 +155,7 @@ export function createReviewsService({
 
   function beginPoll() {
     return store.transaction(async (rows) => {
-      if ((await mode(rows)) !== 'polling' || polling.checking) return [];
+      if ((await rows.deliveryMode()) !== 'polling' || polling.checking) return [];
       const links = await rows.openWatches();
       if (links.length) {
         polling.checking = true;

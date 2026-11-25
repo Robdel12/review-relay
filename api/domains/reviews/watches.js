@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { normalizeLink, parseChat, parsePR } from '../../../protocol.js';
 import { InputError } from './input-error.js';
 import { deliveryTransition, initialWatch, watchTransition } from './reviews.machine.js';
+import { maxActiveWatches } from './reviews.store.js';
 
 export async function endWatch(rows, id, type, at) {
   const current = await rows.watch(id);
@@ -79,8 +80,8 @@ export function createWatches({ store, github, watchChanged }) {
       if (current && !sameChat(current)) {
         throw new InputError('That PR already has an active chat.', 409);
       }
-      if (status === 'open' && !current && (await rows.openWatches()).length >= 100) {
-        throw new InputError('The workspace supports up to 100 active links.');
+      if (status === 'open' && !current && !(await rows.hasWatchCapacity())) {
+        throw new InputError(`The workspace supports up to ${maxActiveWatches} active links.`);
       }
       if (current) {
         if (status !== 'open') await endWatch(rows, current.id, status, Date.now());

@@ -6,6 +6,14 @@ export const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 export const repoName = /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i;
 export const loginName = /^[a-z0-9-]{1,39}$/i;
 
+export function githubRepoFromRemote(remote) {
+  const match =
+    /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([\w.-]+\/[\w.-]+)$/i.exec(
+      remote.replace(/\.git$/, ''),
+    );
+  return match?.[1] ?? null;
+}
+
 export function parseChat(value) {
   if (typeof value !== 'string') return null;
   const provider = value.startsWith('claude:') ? 'claude' : 'codex';

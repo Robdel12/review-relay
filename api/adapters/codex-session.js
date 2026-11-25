@@ -10,35 +10,34 @@ export async function startCodexReview({ socketPath, cwd, title, text, skill, mo
   socket.once('close', () => lifetime.abort(new Error('Codex disconnected')));
   const signal = AbortSignal.any([lifetime.signal, AbortSignal.timeout(20_000)]);
 
-  function request(method, params) {
+  async function request(method, params) {
+    signal.throwIfAborted();
     const id = ++sequence;
-    return new Promise((resolve, reject) => {
-      function finish(error, result) {
-        socket.off('message', onMessage);
-        signal.removeEventListener('abort', onAbort);
-        if (error) reject(error);
-        else resolve(result);
+    const { promise, resolve, reject } = Promise.withResolvers();
+    const onAbort = () => reject(signal.reason);
+
+    function onMessage(raw) {
+      try {
+        const message = JSON.parse(raw);
+        if (message.id !== id) return;
+        if (message.error) throw new Error(`Codex ${method} failed`);
+        resolve(message.result);
+      } catch (error) {
+        reject(error);
       }
-      function onMessage(raw) {
-        try {
-          const message = JSON.parse(raw);
-          if (message.id === id) {
-            finish(message.error && new Error(`Codex ${method} failed`), message.result);
-          }
-        } catch (error) {
-          finish(error);
-        }
-      }
-      function onAbort() {
-        finish(signal.reason);
-      }
-      signal.throwIfAborted();
-      signal.addEventListener('abort', onAbort, { once: true });
-      socket.on('message', onMessage);
+    }
+
+    signal.addEventListener('abort', onAbort, { once: true });
+    socket.on('message', onMessage);
+    try {
       socket.send(JSON.stringify({ id, method, params }), (error) => {
-        if (error) finish(error);
+        if (error) reject(error);
       });
-    });
+      return await promise;
+    } finally {
+      socket.off('message', onMessage);
+      signal.removeEventListener('abort', onAbort);
+    }
   }
 
   try {

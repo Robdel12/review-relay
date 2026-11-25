@@ -51,11 +51,10 @@ export function createAgents({
 
   function reviewSkill(provider, name) {
     if (!skillName.test(name)) return null;
-    const candidates = [
-      ...(provider === 'claude' ? [join(claudeHome, 'skills', name, 'SKILL.md')] : []),
-      ...(name === defaultReviewSkill && codexDefaultSkill ? [codexDefaultSkill] : []),
-      join(codexHome, 'skills', name, 'SKILL.md'),
-    ];
+    const candidates = [];
+    if (provider === 'claude') candidates.push(join(claudeHome, 'skills', name, 'SKILL.md'));
+    if (name === defaultReviewSkill && codexDefaultSkill) candidates.push(codexDefaultSkill);
+    candidates.push(join(codexHome, 'skills', name, 'SKILL.md'));
     const path = candidates.find((candidate) => {
       try {
         return statSync(candidate, { throwIfNoEntry: false })?.isFile();
@@ -66,20 +65,7 @@ export function createAgents({
     return path ? { type: 'skill', name, path } : null;
   }
 
-  async function startReview({ provider, cwd, title, prompt, skillName }) {
-    const model = reviewModels[provider];
-    const skill = reviewSkill(provider, skillName);
-    if (provider === 'codex') {
-      return startCodexReview({
-        socketPath: codexSocket,
-        cwd,
-        title,
-        text: skill ? `$${skill.name} ${prompt}` : prompt,
-        skill,
-        model,
-      });
-    }
-
+  async function startClaudeReview({ cwd, title, prompt, skill, model }) {
     const { stdout, stderr } = await run(
       claude,
       ['--bg', '--name', title, '--model', model, '--', `${skillInstruction(skill)}${prompt}`],
@@ -88,12 +74,29 @@ export function createAgents({
     const output = stripVTControlCharacters(`${stdout}\n${stderr}`);
     const attachId = /^ *claude attach ([a-f0-9]{8})\b/m.exec(output)?.[1];
     if (!attachId) throw new Error('Claude Code did not return an attach command');
-    const sessions = await run(claude, ['agents', '--json', '--all'], { cwd, timeout: 10_000 });
-    const session = JSON.parse(sessions.stdout).find(
+    const { stdout: sessions } = await run(claude, ['agents', '--json', '--all'], {
+      cwd,
+      timeout: 10_000,
+    });
+    const session = JSON.parse(sessions).find(
       (item) => item.id === attachId && item.kind === 'background' && item.cwd === cwd,
     );
     if (!uuid.test(session?.sessionId)) throw new Error('Invalid Claude Code session ID');
     return { thread: session.sessionId, attachId };
+  }
+
+  async function startReview({ provider, cwd, title, prompt, skillName }) {
+    const model = reviewModels[provider];
+    const skill = reviewSkill(provider, skillName);
+    if (provider !== 'codex') return startClaudeReview({ cwd, title, prompt, skill, model });
+    return startCodexReview({
+      socketPath: codexSocket,
+      cwd,
+      title,
+      text: skill ? `$${skill.name} ${prompt}` : prompt,
+      skill,
+      model,
+    });
   }
 
   return Object.freeze({ queueCodex, notify, startReview, reviewSkill });

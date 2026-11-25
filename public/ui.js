@@ -19,6 +19,12 @@ const emptyLinks = {
   reviewer: 'No linked PRs to review.',
   author: 'No linked PRs you authored.',
 };
+const relayLabels = {
+  unpaired: 'Relay not paired',
+  connecting: 'Connecting',
+  offline: 'Relay offline',
+  connected: 'Relay connected',
+};
 const statusLabels = {
   pending: 'Waiting',
   queued: 'Queued in Codex',
@@ -44,7 +50,7 @@ function anchor(url, content, name) {
   return element;
 }
 
-function resumeButton(link, label, style) {
+function claudeCommandButton(link, label, style) {
   const button = node('button', style, label);
   button.type = 'button';
   const verb = link.attach_id ? 'attach' : 'resume';
@@ -85,7 +91,7 @@ function toast(message) {
   }, 4500);
 }
 
-function row(link) {
+function row(link, mode) {
   const line = node('article', 'pr-row');
   const title = node('div');
   title.append(
@@ -102,13 +108,13 @@ function row(link) {
     node('span', 'pr-role', linkRole[link.role]),
   );
   if (link.status !== 'open') metadata.append(node('span', null, statusLabels[link.status]));
-  else if (state.delivery.mode === 'push' && !link.subscribed)
+  else if (mode === 'push' && !link.subscribed)
     metadata.append(node('span', null, 'Waiting for relay'));
   title.append(metadata);
   const actions = node('div', 'pr-options');
   if (link.provider === 'claude') {
     const label = link.attach_id ? 'Copy attach command' : 'Copy resume command';
-    actions.append(resumeButton(link, label, 'chat-link'));
+    actions.append(claudeCommandButton(link, label, 'chat-link'));
   } else {
     const chat = anchor(`codex://threads/${link.thread}`, 'Open chat', 'chat-link');
     chat.setAttribute('aria-label', `Open chat for PR #${link.number}`);
@@ -140,7 +146,7 @@ function eventRow(event) {
   const claude = event.provider === 'claude';
   line.append(
     claude
-      ? resumeButton(event, activity[event.kind], 'text-button event-label')
+      ? claudeCommandButton(event, activity[event.kind], 'text-button event-label')
       : anchor(`codex://threads/${event.thread}`, activity[event.kind], 'event-label'),
   );
   let status = statusLabels[event.status] ?? event.status;
@@ -180,62 +186,54 @@ function eventRow(event) {
 
 let state;
 const roleFilters = $('role-filters');
-function renderLinks(links) {
+function renderLinks(links, mode) {
   const role = roleFilters.querySelector('input:checked').value;
   const visible = role === 'all' ? links : links.filter((link) => link.role === role);
   const live = visible.filter((link) => link.status === 'open');
   const archived = visible.filter((link) => link.status !== 'open');
+  const renderRow = (link) => row(link, mode);
   $('active-count').textContent = live.length;
   $('archive-count').textContent = archived.length;
   $('archive').hidden = !archived.length;
   $('links').replaceChildren(
-    ...(live.length ? live.map(row) : [node('p', 'empty', emptyLinks[role])]),
+    ...(live.length ? live.map(renderRow) : [node('p', 'empty', emptyLinks[role])]),
   );
-  $('archived-links').replaceChildren(...archived.map(row));
+  $('archived-links').replaceChildren(...archived.map(renderRow));
 }
 
 roleFilters.addEventListener('change', () => {
-  if (state) renderLinks(state.links);
+  if (state) renderLinks(state.links, state.delivery.mode);
 });
 
-function render(data) {
-  const { links, events, relay, delivery } = data;
-  const linksChanged =
-    state?.delivery.mode !== delivery.mode ||
-    JSON.stringify(state?.links) !== JSON.stringify(links);
-  const eventsChanged = JSON.stringify(state?.events) !== JSON.stringify(events);
-  state = data;
-  const { reviewDiscovery } = data;
-  const discoveryStatus = $('discovery-status');
-  const discoveryMessage = reviewDiscovery?.unresolved
-    ? `Check PR #${reviewDiscovery.unresolved.number} in your agent. Review Relay couldn't confirm its chat started.`
-    : reviewDiscovery?.error
-      ? 'Check your GitHub login and repository checkout. Review Relay will retry.'
-      : reviewDiscovery
-        ? `Watching ${reviewDiscovery.repo} for requests to @${reviewDiscovery.login}.`
-        : '';
-  if (discoveryStatus.textContent !== discoveryMessage) {
-    discoveryStatus.textContent = discoveryMessage;
+function discoveryMessage(review) {
+  if (!review) return '';
+  if (review.unresolved) {
+    return `Check PR #${review.unresolved.number} in your agent. Review Relay couldn't confirm its chat started.`;
   }
-  const polling = delivery.mode === 'polling';
-  if (linksChanged) renderLinks(links);
-  if (eventsChanged) {
-    $('events').replaceChildren(
-      ...(events.length ? events.map(eventRow) : [node('p', 'empty', 'No deliveries yet.')]),
-    );
+  if (review.error) {
+    return 'Check your GitHub login and repository checkout. Review Relay will retry.';
   }
+  return `Watching ${review.repo} for requests to @${review.login}.`;
+}
 
-  const labels = {
-    unpaired: 'Relay not paired',
-    connecting: 'Connecting',
-    offline: 'Relay offline',
-    connected: 'Relay connected',
-  };
-  const status = polling
-    ? delivery.error
-      ? 'GitHub check failed'
-      : `Polling · ${Math.round(delivery.interval / 60000)} min`
-    : labels[relay.status] || 'Checking relay';
+function deliveryMessage({ delivery, relay, links }) {
+  if (delivery.mode === 'polling') {
+    return delivery.error ? 'Check your gh login. Review Relay will retry.' : '';
+  }
+  if (relay.status === 'unpaired') return 'Pair a Cloudflare relay to receive GitHub events.';
+  if (relay.status === 'offline') return 'The relay will reconnect automatically.';
+  if (relay.status !== 'connected') return '';
+  if (!relay.lastWebhook) return 'Waiting for the first signed GitHub delivery.';
+  if (links.some((link) => link.status === 'open' && link.repo !== relay.repo)) {
+    return 'Some PRs belong to a repository outside this relay.';
+  }
+  return '';
+}
+
+function renderDelivery(data) {
+  const { delivery, relay } = data;
+  const polling = delivery.mode === 'polling';
+  const status = polling ? pollingLabel(delivery) : relayLabels[relay.status] || 'Checking relay';
   const control = $('settings-control');
   control.dataset.live = polling ? !delivery.error : relay.status === 'connected';
   control.setAttribute('aria-label', `Settings. ${status}`);
@@ -243,23 +241,36 @@ function render(data) {
     polling && delivery.lastPoll ? `Last check ${dates.format(delivery.lastPoll)}` : 'Settings';
   $('relay-label').textContent = status;
 
-  const message = polling
-    ? delivery.error
-      ? 'Check your gh login. Review Relay will retry.'
-      : ''
-    : relay.status === 'unpaired'
-      ? 'Pair a Cloudflare relay to receive GitHub events.'
-      : relay.status === 'offline'
-        ? 'The relay will reconnect automatically.'
-        : relay.status === 'connected' && !relay.lastWebhook
-          ? 'Waiting for the first signed GitHub delivery.'
-          : relay.status === 'connected' &&
-              links.some((link) => link.status === 'open' && link.repo !== relay.repo)
-            ? 'Some PRs belong to a repository outside this relay.'
-            : '';
+  const message = deliveryMessage(data);
+  const copy = $('setup-copy');
   $('setup').hidden = !message;
   $('setup-action').hidden = polling;
-  if ($('setup-copy').textContent !== message) $('setup-copy').textContent = message;
+  if (copy.textContent !== message) copy.textContent = message;
+}
+
+function pollingLabel(delivery) {
+  return delivery.error
+    ? 'GitHub check failed'
+    : `Polling · ${Math.round(delivery.interval / 60000)} min`;
+}
+
+function render(data) {
+  const { links, events, delivery, reviewDiscovery } = data;
+  const linksChanged =
+    state?.delivery.mode !== delivery.mode ||
+    JSON.stringify(state?.links) !== JSON.stringify(links);
+  const eventsChanged = JSON.stringify(state?.events) !== JSON.stringify(events);
+  state = data;
+  const discoveryStatus = $('discovery-status');
+  const notice = discoveryMessage(reviewDiscovery);
+  if (discoveryStatus.textContent !== notice) discoveryStatus.textContent = notice;
+  if (linksChanged) renderLinks(links, delivery.mode);
+  if (eventsChanged) {
+    $('events').replaceChildren(
+      ...(events.length ? events.map(eventRow) : [node('p', 'empty', 'No deliveries yet.')]),
+    );
+  }
+  renderDelivery(data);
 }
 
 $('new-link').addEventListener('click', () => $('link-dialog').showModal());
