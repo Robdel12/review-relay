@@ -17,7 +17,7 @@ Review Relay uses your existing `gh` login to check linked PRs every two minutes
 
 Review Relay adds a follow-up to the linked Codex chat's queue. If the chat is closed, open it in Codex to pick up the follow-up. This keeps the chat's stop and steer controls available where it runs. Claude Code picks up waiting feedback when you resume the linked session or send your next prompt. With `terminal-notifier` installed, you also get a macOS notification when feedback arrives.
 
-For your own PR, the agent can fix feedback in a clean checkout, run focused tests, and commit and push the fixes to the PR branch. You handle review requests, replies, and thread resolutions. For a PR you review, the agent checks what changed and drafts its findings in the session. Keep the dashboard on your Mac and use author watches with repositories and reviewers you trust.
+For your own PR, the agent can fix feedback in a clean checkout, run focused tests, and commit and push the fixes to the PR branch. After pushing, it can request re-review from the reviewers whose requested changes it addressed. You handle replies and thread resolutions. For a PR you review, the agent checks what changed and drafts its findings in the session. Keep the dashboard on your Mac and use author watches with repositories and reviewers you trust.
 
 ### Watch lifecycle
 

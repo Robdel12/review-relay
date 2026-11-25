@@ -353,15 +353,23 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
       rows.every((row) => !row.resume),
       'Follow-ups must leave resume to the chat owner.',
     );
-    const authorMessages = rows
-      .filter((row) => row.chat === authorChat)
-      .map((row) => row.message)
-      .join('\n');
+    const authorFollowUps = rows.filter((row) => row.chat === authorChat).map((row) => row.message);
+    const authorMessages = authorFollowUps.join('\n');
     assert.match(authorMessages, /you may commit.*push them to the existing PR branch/);
     assert.match(
       authorMessages,
-      /Leave replies, thread resolutions, and review requests to the person running Review Relay/,
+      /Leave replies and thread resolutions to the person running Review Relay/,
     );
+    const changesContext = authorFollowUps.find((message) =>
+      message.includes('#pullrequestreview-12'),
+    );
+    assert.match(
+      changesContext,
+      /After pushing the verified fix.*Request re-review only from the GitHub authors of the linked changes-requested reviews whose feedback you addressed/,
+    );
+    assert.match(changesContext, /Skip anyone with a pending review request/);
+    const inlineContext = authorFollowUps.find((message) => message.includes('#discussion_r15'));
+    assert.match(inlineContext, /Leave review requests to the person running Review Relay/);
     const feedbackLinks = Array.from(
       authorMessages.matchAll(/#(?:pullrequestreview-\d+|discussion_r\d+)/g),
       (match) => match[0],
@@ -412,6 +420,7 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
       authorContext.additionalContext,
       /you may commit.*push them to the existing PR branch/,
     );
+    assert.match(authorContext.additionalContext, /Request re-review only from the GitHub authors/);
     assert.equal(hook(claudeAuthor, 'UserPromptSubmit', { prompt: 'Continue' }), '');
     const reviewContext = JSON.parse(
       hook(claudeReviewer, 'UserPromptSubmit', { prompt: 'Continue' }),
