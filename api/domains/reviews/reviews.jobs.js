@@ -1,7 +1,6 @@
 import { z } from '@robdel12/cricket';
 import { defineJob, localQueue, state } from '@robdel12/cricket/jobs';
 import { uuid } from '../../../protocol.js';
-import { chatMessage } from './feedback.js';
 
 export const wakeKey = 'wake';
 const queue = localQueue({ name: 'review-relay' });
@@ -57,21 +56,21 @@ export const dispatchFeedback = defineJob({
   name: 'reviews.deliver',
   input: empty,
   queue: wakeQueue,
-  state: state.derived({ from: ['events', 'links'] }),
+  state: state.derived({ from: ['events', 'links', 'settings'] }),
   async run({ services: { reviews }, logger, jobs }) {
     try {
       for (;;) {
         const at = Date.now();
         const batch = await reviews.nextBatch(at);
         if (!batch) break;
-        const { watch, events } = batch;
+        const { watch, events, message } = batch;
         if (watch.status !== 'open') {
           await reviews.recordAttempt(watch.id, events, { type: 'cancelled' });
           continue;
         }
         let outcome;
         try {
-          await reviews.agents.queueCodex(watch, chatMessage(watch, events));
+          await reviews.agents.queueCodex(watch, message);
           outcome = { type: 'accepted', at: Date.now() };
         } catch (error) {
           logger.warn('codex.queue.failed', {

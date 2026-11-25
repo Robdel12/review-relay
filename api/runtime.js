@@ -51,14 +51,10 @@ export async function startReviewRelay(env = process.env) {
           codexSocket:
             env.PR_CHAT_CODEX_SOCKET ||
             join(codexHome, 'app-server-control/app-server-control.sock'),
-          codexSkill:
-            env.PR_CHAT_CODEX_REVIEW_SKILL ||
-            join(codexHome, 'skills/pull-request-review/SKILL.md'),
+          codexHome,
+          codexDefaultSkill: env.PR_CHAT_CODEX_REVIEW_SKILL,
           claude: env.PR_CHAT_CLAUDE || join(home, '.local/bin/claude'),
-          claudeSkill: join(
-            env.CLAUDE_CONFIG_DIR || join(home, '.claude'),
-            'skills/pull-request-review/SKILL.md',
-          ),
+          claudeHome: env.CLAUDE_CONFIG_DIR || join(home, '.claude'),
           notifier: env.PR_CHAT_NOTIFIER || '/opt/homebrew/bin/terminal-notifier',
           origin: () => origin,
         }),

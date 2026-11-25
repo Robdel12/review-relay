@@ -32,7 +32,13 @@ function incoming(event, ready) {
   };
 }
 
-export function createInbox({ store, batchMs, changed, scheduleDelivery, notify }) {
+export function createInbox({ store, batchMs, changed, scheduleDelivery, notify, reviewSkill }) {
+  async function formatMessage(rows, link, events) {
+    const skill =
+      link.role === 'reviewer' ? reviewSkill(link.provider, await rows.reviewSkill()) : null;
+    return chatMessage(link, events, skill);
+  }
+
   async function receive(batch, { fromRelay = false } = {}) {
     const { ids, alerts } = await store.transaction(async (rows) => {
       if (fromRelay && (await rows.setting('delivery-mode')) !== 'push') {
@@ -77,7 +83,7 @@ export function createInbox({ store, batchMs, changed, scheduleDelivery, notify 
       const messages = [];
       let length = 0;
       for (const [id, events] of Map.groupBy(entries, (entry) => entry.link)) {
-        const message = chatMessage(await rows.watch(id), events);
+        const message = await formatMessage(rows, await rows.watch(id), events);
         length += message.length + 2;
         if (length > 8000) break;
         messages.push(message);
@@ -122,9 +128,10 @@ export function createInbox({ store, batchMs, changed, scheduleDelivery, notify 
   function nextBatch(at) {
     return store.transaction(async (rows) => {
       const id = await rows.nextCodexLink(at);
-      return id
-        ? { watch: await rows.watch(id), events: await rows.readyDeliveries(id, at) }
-        : null;
+      if (!id) return null;
+      const watch = await rows.watch(id);
+      const events = await rows.readyDeliveries(id, at);
+      return { watch, events, message: await formatMessage(rows, watch, events) };
     });
   }
 

@@ -135,7 +135,7 @@
         <p class="error" role="alert"></p>
       </form>
       <details class="link-options relay-options" id="discovery-options">
-        <summary>Fresh review chats</summary>
+        <summary>Review chats</summary>
         <form id="discovery-form">
           <p class="dialog-copy">Open and link a chat when GitHub asks you to review a new PR.</p>
           <label for="review-provider">Open in</label>
@@ -145,10 +145,29 @@
             <option value="claude">Claude Code · Opus 5.5</option>
           </select>
           <div id="review-checkout" hidden>
+            <label for="review-repo">GitHub repository</label>
+            <input
+              id="review-repo"
+              name="repo"
+              placeholder="owner/repo"
+              aria-describedby="review-repo-help"
+            >
+            <small id="review-repo-help">Leave blank to use the checkout’s origin.</small>
             <label for="review-cwd">Repository checkout</label>
             <input id="review-cwd" name="cwd" placeholder="/path/to/repository">
             <small>Use the full path to a checkout you trust.</small>
           </div>
+          <label for="review-skill">Review skill</label>
+          <input
+            id="review-skill"
+            name="skill"
+            placeholder="pull-request-review"
+            maxlength="64"
+            aria-describedby="review-skill-help"
+          >
+          <small id="review-skill-help"
+            >Use a local skill by name. If it’s missing, Review Relay uses the plain prompt.</small
+          >
           <p class="dialog-copy" id="discovery-status" role="status"></p>
           <p class="error" role="alert"></p>
           <div class="dialog-actions">

@@ -2,7 +2,7 @@
 import { execFileSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
 import { init } from './init.js';
-import { chatReference, parseChat, parsePR, uuid } from './protocol.js';
+import { chatReference, defaultReviewSkill, parseChat, parsePR, uuid } from './protocol.js';
 
 const origin = `http://127.0.0.1:${process.env.PR_CHAT_PORT || 4317}`;
 const urlPattern = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/[1-9]\d*(?![\w/])/gi;
@@ -55,15 +55,19 @@ function prFromPrompt(prompt, cwd) {
   return repo ? `https://github.com/${repo}/pull/${numbers[0]}` : null;
 }
 
-function hookLinks(input, provider) {
+async function hookLinks(input, provider) {
   const chat = chatReference({ provider, thread: input.session_id });
-  if (
-    input.hook_event_name === 'UserPromptSubmit' &&
-    typeof input.prompt === 'string' &&
-    /(?:\$|\/)pull-request-review\b/i.test(input.prompt)
-  ) {
+  if (input.hook_event_name === 'UserPromptSubmit' && typeof input.prompt === 'string') {
+    const mentions = [...input.prompt.matchAll(/(?:^|[\s([`])[$/]([a-z0-9][a-z0-9_-]*)/gi)];
+    if (!mentions.length) return [];
     const pr = prFromPrompt(input.prompt, input.cwd);
-    return pr ? [{ pr, chat, expect: 'reviewer' }] : [];
+    if (!pr) return [];
+    const { skill } = await api('/api/review-skill', undefined, 1200).catch(() => ({
+      skill: defaultReviewSkill,
+    }));
+    return mentions.some(([, name]) => name.toLowerCase() === skill.toLowerCase())
+      ? [{ pr, chat, expect: 'reviewer' }]
+      : [];
   }
   if (
     input.hook_event_name === 'PostToolUse' &&
@@ -112,7 +116,7 @@ async function hook(provider = 'codex') {
   if (typeof input?.session_id !== 'string' || !uuid.test(input.session_id) || input.agent_id)
     return;
   const event = input.hook_event_name;
-  const links = hookLinks(input, provider);
+  const links = await hookLinks(input, provider);
   const output = {};
   if (links.length) {
     const messages = await Promise.all(

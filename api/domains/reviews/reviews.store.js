@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { normalizeLink, uuid } from '../../../protocol.js';
+import { defaultReviewSkill, normalizeLink, uuid } from '../../../protocol.js';
+
+const reviewSkillKey = 'review-skill';
 
 function queries(db) {
   const settings = () => db('settings');
@@ -12,11 +14,15 @@ function queries(db) {
       .join('links', 'links.id', 'events.link')
       .where({ 'events.status': 'pending', 'links.provider': 'codex' });
 
+  const setting = async (key) => (await settings().where({ key }).first('value'))?.value;
+
+  const set = (key, value) => settings().insert({ key, value }).onConflict('key').merge();
+
   return {
-    async setting(key) {
-      return (await settings().where({ key }).first('value'))?.value;
-    },
-    set: (key, value) => settings().insert({ key, value }).onConflict('key').merge(),
+    setting,
+    set,
+    reviewSkill: async () => (await setting(reviewSkillKey)) ?? defaultReviewSkill,
+    setReviewSkill: (name) => set(reviewSkillKey, name),
     async trackedReview(fields) {
       return Boolean(
         (await watches().where(fields).first('id')) ||

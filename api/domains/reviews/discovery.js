@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { loginName } from '../../../protocol.js';
+import { defaultReviewSkill, loginName, repoName, skillName } from '../../../protocol.js';
 import { prURL } from './feedback.js';
 import { InputError } from './input-error.js';
 import { initialWatch } from './reviews.machine.js';
@@ -29,10 +29,21 @@ export function createDiscovery({ store, github, agents, interval, wake, watchCh
     });
   }
 
-  async function configure({ provider, cwd: path }) {
+  async function configure({ provider, cwd: path, repo, skill }) {
+    const selectedSkill = skill === undefined ? undefined : skill.trim() || defaultReviewSkill;
+    if (selectedSkill && !skillName.test(selectedSkill)) {
+      throw new InputError('Enter a skill name using letters, numbers, hyphens, or underscores.');
+    }
+    const selectedRepo = repo?.trim().toLowerCase();
     let next = null;
     if (provider !== 'off') {
+      if (selectedRepo && !repoName.test(selectedRepo)) {
+        throw new InputError('Enter the GitHub repository as owner/repo.');
+      }
       const checkout = await github.checkout(path);
+      if (selectedRepo && selectedRepo !== checkout.repo) {
+        throw new InputError('The repository must match the checkout’s GitHub origin.');
+      }
       let login;
       try {
         login = await github.login();
@@ -47,7 +58,11 @@ export function createDiscovery({ store, github, agents, interval, wake, watchCh
     }
 
     const updated = await store.transaction(async (rows) => {
+      if (selectedSkill && selectedSkill !== (await rows.reviewSkill())) {
+        await rows.setReviewSkill(selectedSkill);
+      }
       const current = await preference(rows);
+      if (!next && !current) return false;
       if (
         next &&
         current?.cwd === next.cwd &&
@@ -63,8 +78,8 @@ export function createDiscovery({ store, github, agents, interval, wake, watchCh
       lastCheck = null;
       error = false;
       await schedule(0);
-      changed();
     }
+    changed();
   }
 
   async function start(config, number) {
@@ -76,20 +91,21 @@ export function createDiscovery({ store, github, agents, interval, wake, watchCh
 
     const created = Date.now();
     const id = randomUUID();
-    const claimed = await store.transaction(async (rows) => {
+    const selectedSkill = await store.transaction(async (rows) => {
       if (JSON.stringify(await preference(rows)) !== JSON.stringify(config)) return false;
       if ((await rows.openWatches()).length >= 100 || (await rows.trackedReview(fields))) {
         return false;
       }
       await rows.addReviewStart({ ...fields, created, status: 'starting' });
-      return true;
+      return rows.reviewSkill();
     });
-    if (!claimed) return null;
+    if (!selectedSkill) return null;
 
     try {
       const { thread, attachId } = await agents.startReview({
         provider,
         cwd,
+        skillName: selectedSkill,
         title: `🔎 PR: ${pr.title} (#${number})`,
         prompt: `Review PR ${prURL(fields)}. Confirm GitHub still requests my review. Keep the review read-only and report your findings in this chat. Ask me before posting to GitHub or changing the pull request.`,
       });

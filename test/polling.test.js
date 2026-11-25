@@ -219,8 +219,14 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
       tool_response: { stdout: `https://github.com/${repo}/pull/3` },
     });
     assert.match(JSON.parse(newPR).systemMessage, /linked #3/);
+    const settings = await fetch(`${origin}/api/review-discovery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: origin },
+      body: JSON.stringify({ provider: 'off', skill: 'review-checklist' }),
+    });
+    assert.ok(settings.ok, await settings.text());
     const reviewing = hook(claudeReviewer, 'UserPromptSubmit', {
-      prompt: `$pull-request-review https://github.com/${repo}/pull/4`,
+      prompt: `/review-checklist https://github.com/${repo}/pull/4`,
     });
     assert.match(JSON.parse(reviewing).systemMessage, /linked #4/);
     const git = (...args) => execFileSync('/usr/bin/git', ['-C', temp, ...args]);

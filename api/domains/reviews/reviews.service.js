@@ -35,6 +35,7 @@ export function createReviewsService({
         error: polling.error,
       },
       reviewDiscovery: await discovery.view(rows),
+      reviewSkill: await rows.reviewSkill(),
       relay: { ...relay.view(), url: (await rows.setting('relay-url')) ?? null },
     }));
   const changed = () => void dashboard.publish(view);
@@ -56,6 +57,7 @@ export function createReviewsService({
   const inbox = createInbox({
     store,
     batchMs: config.batchMs,
+    reviewSkill: agents.reviewSkill,
     changed,
     scheduleDelivery,
     notify: wake.notify,
@@ -176,6 +178,7 @@ export function createReviewsService({
     subscribe: () => dashboard.subscribe(view),
     setPolling,
     discovery,
+    reviewSkill: () => store.transaction((rows) => rows.reviewSkill()),
     pair,
     cutover,
     connectRelay,

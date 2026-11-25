@@ -1,7 +1,9 @@
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { promisify, stripVTControlCharacters } from 'node:util';
-import { chatReference, uuid } from '../../protocol.js';
+import { chatReference, defaultReviewSkill, skillName, uuid } from '../../protocol.js';
+import { skillInstruction } from '../domains/reviews/feedback.js';
 import { startCodexReview } from './codex-session.js';
 
 const run = promisify(execFile);
@@ -14,9 +16,10 @@ export const reviewModels = Object.freeze({
 export function createAgents({
   codex,
   codexSocket,
-  codexSkill,
+  codexHome,
+  codexDefaultSkill,
   claude,
-  claudeSkill,
+  claudeHome,
   notifier,
   origin,
 }) {
@@ -46,27 +49,40 @@ export function createAgents({
     ).catch(() => {});
   }
 
-  async function startReview({ provider, cwd, title, prompt }) {
+  function reviewSkill(provider, name) {
+    if (!skillName.test(name)) return null;
+    const candidates = [
+      ...(provider === 'claude' ? [join(claudeHome, 'skills', name, 'SKILL.md')] : []),
+      ...(name === defaultReviewSkill && codexDefaultSkill ? [codexDefaultSkill] : []),
+      join(codexHome, 'skills', name, 'SKILL.md'),
+    ];
+    const path = candidates.find((candidate) => {
+      try {
+        return statSync(candidate, { throwIfNoEntry: false })?.isFile();
+      } catch {
+        return false;
+      }
+    });
+    return path ? { type: 'skill', name, path } : null;
+  }
+
+  async function startReview({ provider, cwd, title, prompt, skillName }) {
     const model = reviewModels[provider];
+    const skill = reviewSkill(provider, skillName);
     if (provider === 'codex') {
-      const skill = existsSync(codexSkill)
-        ? { type: 'skill', name: 'pull-request-review', path: codexSkill }
-        : null;
       return startCodexReview({
         socketPath: codexSocket,
         cwd,
         title,
-        text: skill ? `$pull-request-review ${prompt}` : prompt,
+        text: skill ? `$${skill.name} ${prompt}` : prompt,
         skill,
         model,
       });
     }
 
-    const skill = [claudeSkill, codexSkill].find((path) => existsSync(path));
-    const context = skill ? `Read and follow the pull-request-review skill at ${skill}. ` : '';
     const { stdout, stderr } = await run(
       claude,
-      ['--bg', '--name', title, '--model', model, '--', `${context}${prompt}`],
+      ['--bg', '--name', title, '--model', model, '--', `${skillInstruction(skill)}${prompt}`],
       { cwd, timeout: 20_000 },
     );
     const output = stripVTControlCharacters(`${stdout}\n${stderr}`);
@@ -80,5 +96,5 @@ export function createAgents({
     return { thread: session.sessionId, attachId };
   }
 
-  return Object.freeze({ queueCodex, notify, startReview });
+  return Object.freeze({ queueCodex, notify, startReview, reviewSkill });
 }

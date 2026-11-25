@@ -268,6 +268,7 @@ function syncDiscoveryFields() {
   $('review-checkout').hidden = !enabled;
   $('review-cwd').required = enabled;
   $('review-cwd').disabled = !enabled;
+  $('review-repo').disabled = !enabled;
 }
 $('review-provider').addEventListener('change', syncDiscoveryFields);
 
@@ -277,6 +278,8 @@ function openSettings(showRelay = false) {
   $('relay-options').open = showRelay;
   $('review-provider').value = state?.reviewDiscovery?.provider ?? 'off';
   $('review-cwd').value = state?.reviewDiscovery?.cwd ?? '';
+  $('review-repo').value = state?.reviewDiscovery?.repo ?? '';
+  $('review-skill').value = state?.reviewSkill ?? '';
   $('discovery-options').open = !showRelay && Boolean(state?.reviewDiscovery);
   syncDiscoveryFields();
   $('settings-dialog').showModal();
@@ -314,7 +317,7 @@ form('link-form', '/api/links', 'Pull request linked.');
 form('poll-form', '/api/polling', 'Polling interval saved.', (form) => ({
   minutes: form.elements.minutes.valueAsNumber,
 }));
-form('discovery-form', '/api/review-discovery', 'Fresh review chat settings saved.');
+form('discovery-form', '/api/review-discovery', 'Review chat settings saved.');
 form('relay-form', '/api/pair', 'Connecting to the relay.');
 const stream = new EventSource('/stream');
 stream.onmessage = (event) => render(JSON.parse(event.data));

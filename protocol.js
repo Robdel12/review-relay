@@ -1,4 +1,6 @@
 export const protocol = 'pr-chat.v1';
+export const defaultReviewSkill = 'pull-request-review';
+export const skillName = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 export const maxWebhook = 2 * 1024 * 1024;
 export const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 export const repoName = /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i;

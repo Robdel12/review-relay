@@ -1,10 +1,13 @@
 export const prURL = (link) => `https://github.com/${link.repo}/pull/${link.number}`;
 
-export function chatMessage(link, events) {
+export function skillInstruction(skill) {
+  return skill ? `Read and follow the ${skill.name} skill at ${JSON.stringify(skill.path)}. ` : '';
+}
+
+export function chatMessage(link, events, skill) {
   const url = prURL(link);
   if (link.role === 'reviewer') {
-    const skill = link.provider === 'claude' ? '' : ' Use the pull-request-review skill.';
-    return `GitHub requested your review on ${url}.${skill} Confirm that your review is still requested, then compare the latest PR head with your last reviewed commit and revisit the findings in this chat. Keep the review read-only and draft any findings in chat. Leave external actions to the person running Review Relay.`;
+    return `GitHub requested your review on ${url}. ${skillInstruction(skill)}Confirm that your review is still requested, then compare the latest PR head with your last reviewed commit and revisit the findings in this chat. Keep the review read-only and draft any findings in chat. Leave external actions to the person running Review Relay.`;
   }
   const references = [
     ...new Set(

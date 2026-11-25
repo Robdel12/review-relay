@@ -30,4 +30,4 @@ Add these entries to `~/.codex/hooks.json`, merging them with any hooks you alre
 }
 ```
 
-Review and trust the hooks in Codex with `/hooks`. A prompt with `$pull-request-review` and one PR links a review chat. A `gh pr create` invocation links the new PR to its chat when the author and checkout match. Review Relay keeps an existing link until you stop it.
+Review and trust the hooks in Codex with `/hooks`. A prompt with the configured review skill, such as `$pull-request-review`, and one PR links a review chat. A `gh pr create` invocation links the new PR to its chat when the author and checkout match. Review Relay keeps an existing link until you stop it.

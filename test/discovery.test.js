@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { WebSocketServer } from 'ws';
 import { startReviewRelay } from '../api/runtime.js';
@@ -24,10 +24,21 @@ test('starts fresh review chats, links the actual agent session, and remembers l
   const codex = join(directory, 'codex');
   const claude = join(directory, 'claude');
   const skill = join(directory, 'SKILL.md');
+  const codexHome = join(directory, 'codex-home');
+  const claudeHome = join(directory, 'claude-home');
+  const skillName = 'review-checklist';
+  const customCodexSkill = join(codexHome, 'skills', skillName, 'SKILL.md');
+  const customClaudeSkill = join(claudeHome, 'skills', skillName, 'SKILL.md');
+  for (const path of [customCodexSkill, customClaudeSkill]) {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, '# Custom review skill\n');
+  }
   const socket = join(directory, 'codex.sock');
   const claudeLog = join(directory, 'claude.json');
   const codexLog = join(directory, 'codex.jsonl');
   const codexId = randomUUID();
+  const fallbackId = randomUUID();
+  const codexThreads = [codexId, fallbackId].values();
   const claudeId = randomUUID();
   const attachId = claudeId.slice(0, 8);
   const github = {};
@@ -116,7 +127,8 @@ test('starts fresh review chats, links the actual agent session, and remembers l
       const message = JSON.parse(raw);
       requests.push(message);
       if (message.id === undefined) return;
-      const result = message.method === 'thread/start' ? { thread: { id: codexId } } : {};
+      const result =
+        message.method === 'thread/start' ? { thread: { id: codexThreads.next().value } } : {};
       connection.send(JSON.stringify({ id: message.id, result }));
     });
   });
@@ -131,6 +143,8 @@ test('starts fresh review chats, links the actual agent session, and remembers l
   });
 
   const env = {
+    CODEX_HOME: codexHome,
+    CLAUDE_CONFIG_DIR: claudeHome,
     PR_CHAT_PORT: '0',
     PR_CHAT_STATE_DIR: join(directory, 'state'),
     PR_CHAT_LEGACY: join(directory, 'no-legacy'),
@@ -183,10 +197,22 @@ test('starts fresh review chats, links the actual agent session, and remembers l
 
   const initial = await waitFor(() => true);
   assert.equal(initial.reviewDiscovery, null);
+  assert.equal(initial.reviewSkill, 'pull-request-review');
+  await post('/api/review-discovery', { provider: 'off', skill: '../review' }, 400);
   await post('/api/review-discovery', { provider: 'codex', cwd: '.' }, 400);
-  await post('/api/review-discovery', { provider: 'codex', cwd: directory });
+  await post(
+    '/api/review-discovery',
+    { provider: 'codex', cwd: directory, repo: 'example/other' },
+    400,
+  );
+  await post('/api/review-discovery', {
+    provider: 'codex',
+    cwd: directory,
+    repo: 'Example/Example',
+  });
   const enabled = await waitFor((view) => view.reviewDiscovery?.lastCheck);
   assert.deepEqual(enabled.links, []);
+  assert.equal(enabled.reviewDiscovery.repo, repo);
 
   const timestamp = Date.now();
   request(2, timestamp);
@@ -213,12 +239,19 @@ test('starts fresh review chats, links the actual agent session, and remembers l
     path: skill,
   });
 
+  await post('/api/review-discovery', { provider: 'codex', cwd: directory, skill: skillName });
+  const updated = await waitFor((view) => view.reviewSkill === skillName);
+  assert.equal(updated.reviewDiscovery.since, enabled.reviewDiscovery.since);
   request(2, Date.now());
   await publish();
   await waitFor((view) =>
     view.events.some(({ number, status }) => number === 2 && status === 'queued'),
   );
-  assert.match(await readFile(codexLog, 'utf8'), new RegExp(codexId));
+  const queued = JSON.parse(await readFile(codexLog, 'utf8'));
+  assert.equal(queued[queued.indexOf('--thread') + 1], codexId);
+  const followUp = queued[queued.indexOf('--message') + 1];
+  assert.ok(followUp.includes(customCodexSkill));
+  assert.match(followUp, /review-checklist skill.*read-only/);
   await post(`/api/links/${codexView.links[0].id}`, {});
   await post('/api/review-discovery', { provider: 'claude', cwd: directory });
 
@@ -249,14 +282,29 @@ test('starts fresh review chats, links the actual agent session, and remembers l
     'claude-opus-5-5',
     '--',
   ]);
-  assert.match(args[6], /pull-request-review.*\/pull\/5.*read-only/);
+  assert.match(args[6], /review-checklist.*\/pull\/5.*read-only/);
+  assert.ok(args[6].includes(customClaudeSkill));
+
+  await post('/api/review-discovery', {
+    provider: 'codex',
+    cwd: directory,
+    skill: 'missing-review-skill',
+  });
+  request(6, Date.now());
+  await publish();
+  const fallback = await waitFor((view) => view.links.some(({ thread }) => thread === fallbackId));
+  const fallbackInput = requests.at(-1).params.input;
+  assert.equal(fallbackInput.length, 1);
+  assert.match(fallbackInput[0].text, /^Review PR .*\/pull\/6.*read-only/);
 
   await app.stop('test restart');
   app = await startReviewRelay(env);
   const restarted = await waitFor((view) => view.reviewDiscovery?.lastCheck);
-  assert.deepEqual(restarted.links, after.links);
-  assert.equal(requests.length, 5);
+  assert.deepEqual(restarted.links, fallback.links);
+  assert.equal(restarted.reviewSkill, 'missing-review-skill');
+  assert.equal(requests.length, 10);
   assert.equal((await readFile(claudeLog, 'utf8')).trim().split('\n').length, 1);
-  await post('/api/review-discovery', { provider: 'off' });
-  assert.equal((await waitFor((view) => !view.reviewDiscovery)).reviewDiscovery, null);
+  await post('/api/review-discovery', { provider: 'off', skill: ' ' });
+  const disabled = await waitFor((view) => !view.reviewDiscovery);
+  assert.equal(disabled.reviewSkill, 'pull-request-review');
 });

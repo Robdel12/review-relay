@@ -52,15 +52,17 @@ Open the [dashboard](http://127.0.0.1:4317) to see your watches and their delive
 
 ## Open chats for new reviews
 
-In **Settings → Fresh review chats**, pick Codex or Claude Code and enter the full path to a trusted GitHub checkout. Review Relay checks that repository for direct review requests to your `gh` account. It starts a chat for requests made after you enable the setting. Previously reviewed or linked PRs keep their existing workflow.
+In **Settings → Review chats**, pick Codex or Claude Code and enter the full path to a trusted GitHub checkout. You can enter the GitHub repository as `owner/repo` or leave it blank to use the checkout’s origin. Review Relay checks that repository for direct review requests to your `gh` account. It starts a chat for requests made after you enable the setting. Previously reviewed or linked PRs keep their existing workflow.
 
 Codex uses GPT-6.2 Sol on the desktop app’s local server. Claude Code uses Opus 5.5 in a background session. For Claude, open the checkout in Claude Code once and accept its trust prompt, then use **Copy attach command** to join the session from a terminal. Your account needs access to the selected model. The new agent drafts its review in the chat and asks before posting anything to GitHub.
+
+Set **Review skill** to the name of a skill in your Codex or Claude Code user settings. The default is `pull-request-review`. Claude Code can also use the copy in your Codex settings. If the skill is missing, Review Relay uses a plain read-only prompt. The setting applies to new review chats and re-review prompts.
 
 Fresh requests are checked on the same interval as linked PRs, even when linked PRs use a push relay. If a launch can’t be confirmed, check Settings for the PR number. You can link that review manually.
 
 ## Link from a chat or the terminal
 
-Use `$pr-chat` in Codex or `/pr-chat <PR URL>` in Claude Code. You can also run `pr-chat link <PR URL>` from either agent. The hooks can link new PRs opened through `gh pr create`, including several opened by one command, and review prompts with `$pull-request-review` and a single PR reference.
+Use `$pr-chat` in Codex or `/pr-chat <PR URL>` in Claude Code. You can also run `pr-chat link <PR URL>` from either agent. The hooks can link new PRs opened through `gh pr create`, including several opened by one command, and review prompts with the configured skill, such as `$pull-request-review`, and a single PR reference.
 
 From a separate terminal, pass a session reference explicitly.
 

@@ -106,10 +106,22 @@ export const polling = mutation(
   (reviews, { minutes }) => reviews.setPolling(minutes),
 );
 
+export const reviewSkill = defineEndpoint({
+  method: 'GET',
+  path: '/api/review-skill',
+  summary: 'Read the configured review skill name',
+  handler: async ({ services }) => ({ skill: await services.reviews.reviewSkill() }),
+});
+
 export const reviewDiscovery = mutation(
   '/api/review-discovery',
-  'Configure fresh review chats',
-  z.object({ provider: z.enum(['off', 'codex', 'claude']), cwd: z.string().optional() }),
+  'Configure review chats',
+  z.object({
+    provider: z.enum(['off', 'codex', 'claude']),
+    cwd: z.string().optional(),
+    repo: z.string().optional(),
+    skill: z.string().optional(),
+  }),
   (reviews, body) => reviews.discovery.configure(body),
 );
 
