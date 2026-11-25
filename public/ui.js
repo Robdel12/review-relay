@@ -4,6 +4,7 @@ const activity = {
   review: 'New review',
   changes: 'Changes requested',
   requested: 'Review requested',
+  'review-started': 'Open new review chat',
   merged: 'Pull request merged',
   closed: 'Pull request closed',
 };
@@ -28,6 +29,7 @@ const relayLabels = {
 const statusLabels = {
   pending: 'Waiting',
   queued: 'Queued in Codex',
+  linked: 'Linked',
   delivered: 'Handed to Claude Code',
   failed: 'Failed',
   skipped: 'Skipped',

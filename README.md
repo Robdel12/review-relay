@@ -58,6 +58,8 @@ Codex uses GPT-6.2 Sol on the desktop app’s local server. Claude Code uses Opu
 
 Set **Review skill** to the name of a skill in your Codex or Claude Code user settings. The default is `pull-request-review`. Claude Code can also use the copy in your Codex settings. If the skill is missing, Review Relay uses a plain read-only prompt. The setting applies to new review chats and re-review prompts.
 
+New review chats appear in the **Delivery log**. Click **Open new review chat** to jump to Codex or copy the Claude Code command. Codex chats created by Review Relay appear under **Tasks**.
+
 Fresh requests are checked on the same interval as linked PRs, even when linked PRs use a push relay. If a launch can’t be confirmed, check Settings for the PR number. You can link that review manually.
 
 ## Link from a chat or the terminal

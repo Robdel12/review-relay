@@ -36,6 +36,8 @@ test('starts fresh review chats, links the actual agent session, and remembers l
   const socket = join(directory, 'codex.sock');
   const claudeLog = join(directory, 'claude.json');
   const codexLog = join(directory, 'codex.jsonl');
+  const noticeLog = join(directory, 'notices.jsonl');
+  const notifier = join(directory, 'notifier');
   const codexId = randomUUID();
   const fallbackId = randomUUID();
   const codexThreads = [codexId, fallbackId].values();
@@ -111,6 +113,13 @@ test('starts fresh review chats, links the actual agent session, and remembers l
     `,
     ),
     executable(
+      notifier,
+      `
+      const { appendFileSync } = require('node:fs');
+      appendFileSync(${JSON.stringify(noticeLog)}, JSON.stringify(process.argv.slice(2)) + '\\n');
+    `,
+    ),
+    executable(
       codex,
       `
       const { appendFileSync } = require('node:fs');
@@ -148,7 +157,7 @@ test('starts fresh review chats, links the actual agent session, and remembers l
     PR_CHAT_PORT: '0',
     PR_CHAT_STATE_DIR: join(directory, 'state'),
     PR_CHAT_LEGACY: join(directory, 'no-legacy'),
-    PR_CHAT_NOTIFIER: join(directory, 'no-notifier'),
+    PR_CHAT_NOTIFIER: notifier,
     PR_CHAT_POLL_MS: '150',
     PR_CHAT_BATCH_MS: '100',
     PR_CHAT_GH: gh,
@@ -224,6 +233,13 @@ test('starts fresh review chats, links the actual agent session, and remembers l
     codexView.links.map(({ number, role, provider, thread }) => [number, role, provider, thread]),
     [[2, 'reviewer', 'codex', codexId]],
   );
+  const newReview = codexView.events.find((event) => event.kind === 'review-started');
+  assert.ok(newReview);
+  assert.equal(newReview.number, 2);
+  assert.equal(newReview.thread, codexId);
+  assert.equal(newReview.status, 'linked');
+  assert.equal(newReview.canRetry, false);
+  await post(`/api/retry/${newReview.id}`, {}, 409);
   assert.deepEqual(
     requests.map(({ method }) => method),
     ['initialize', 'initialized', 'thread/start', 'thread/name/set', 'turn/start'],
@@ -302,6 +318,12 @@ test('starts fresh review chats, links the actual agent session, and remembers l
   const restarted = await waitFor((view) => view.reviewDiscovery?.lastCheck);
   assert.deepEqual(restarted.links, fallback.links);
   assert.equal(restarted.reviewSkill, 'missing-review-skill');
+  assert.equal(restarted.events.find((event) => event.id === newReview.id).thread, codexId);
+  const notices = (await readFile(noticeLog, 'utf8')).trim().split('\n').map(JSON.parse);
+  const newChatNotice = notices.find((args) => args.includes(`codex://threads/${codexId}`));
+  assert.ok(
+    newChatNotice?.includes('Click to open your review in Codex. The chat appears under Tasks.'),
+  );
   assert.equal(requests.length, 10);
   assert.equal((await readFile(claudeLog, 'utf8')).trim().split('\n').length, 1);
   await post('/api/review-discovery', { provider: 'off', skill: ' ' });

@@ -136,6 +136,17 @@ export function createDiscovery({ store, github, agents, interval, wake, watchCh
       const linked = await store.transaction(async (rows) => {
         const linkedId = await saveReviewLink(rows, watch);
         await rows.setReviewStart(fields, 'started');
+        if (linkedId) {
+          const linkedAt = Date.now();
+          await rows.addDelivery({
+            id: `${linkedId}:${randomUUID()}`,
+            link: linkedId,
+            kind: 'review-started',
+            status: 'linked',
+            received: linkedAt,
+            ready: linkedAt,
+          });
+        }
         return linkedId;
       });
       await watchChanged();

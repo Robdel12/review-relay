@@ -85,6 +85,7 @@ export const delivery = defineMachine(
       // A call already in flight can report acceptance after the watch was stopped.
       skipped: { on: { accepted: queued } },
       archived: { type: 'final' },
+      linked: { type: 'final' },
     },
   }),
 );

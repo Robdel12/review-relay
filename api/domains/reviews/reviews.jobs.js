@@ -44,7 +44,7 @@ export const discoverReviews = defineJob({
   name: 'reviews.discover',
   input: empty,
   queue: wakeQueue,
-  state: state.derived({ from: ['links', 'review_starts', 'settings'] }),
+  state: state.derived({ from: ['events', 'links', 'review_starts', 'settings'] }),
   async run({ services: { reviews }, logger, jobs }) {
     await reviews.discovery.run(logger, (id) =>
       jobs.enqueue(notifyAgent, { id, reason: 'review-started' }),
@@ -97,7 +97,7 @@ export const dispatchFeedback = defineJob({
 const notifications = Object.freeze({
   'claude-feedback': 'New GitHub feedback. Resume the linked Claude Code session.',
   'claude-requeued': 'GitHub feedback was requeued. Resume the linked Claude Code session.',
-  'review-started': 'GitHub requested your review. A new review chat is linked.',
+  'review-started': 'GitHub requested your review. Open Review Relay to attach to Claude Code.',
   'codex-requested': 'Your review was requested. Open the linked chat.',
   'codex-feedback': 'New feedback was queued. Open the linked chat.',
 });
@@ -109,6 +109,11 @@ export const notifyAgent = defineJob({
   state: state.derived({ from: ['links'] }),
   async run({ services: { reviews }, input }) {
     const link = await reviews.watchForNotice(input.id);
-    if (link?.status === 'open') await reviews.agents.notify(link, notifications[input.reason]);
+    if (link?.status !== 'open') return;
+    const message =
+      input.reason === 'review-started' && link.provider === 'codex'
+        ? 'Click to open your review in Codex. The chat appears under Tasks.'
+        : notifications[input.reason];
+    await reviews.agents.notify(link, message);
   },
 });

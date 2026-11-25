@@ -335,6 +335,7 @@ h2 {
   left: 0;
   background: var(--keyline);
 }
+.activity-line[data-status="linked"]::before,
 .activity-line[data-status="queued"]::before,
 .activity-line[data-status="delivered"]::before {
   background: var(--green);
