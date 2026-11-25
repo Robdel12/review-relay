@@ -304,6 +304,9 @@ test('starts fresh review chats, links the actual agent session, and remembers l
   assert.notEqual(firstPrompt.pid, created.pid);
   assert.equal(firstPrompt.params.threadId, codexId);
   assert.match(firstPrompt.params.input[0].text, /\$pull-request-review.*\/pull\/2.*read-only/);
+  assert.match(firstPrompt.params.input[0].text, /report your findings to me in this chat/);
+  assert.match(firstPrompt.params.input[0].text, /Wait for my approval before posting/);
+  assert.doesNotMatch(firstPrompt.params.input[0].text, /Review Relay/);
   assert.deepEqual(firstPrompt.params.input[1], {
     type: 'skill',
     name: 'pull-request-review',
@@ -367,7 +370,7 @@ test('starts fresh review chats, links the actual agent session, and remembers l
   const fallbackInput = (await requests()).findLast(({ method }) => method === 'thread/queue/add')
     .params.input;
   assert.equal(fallbackInput.length, 1);
-  assert.match(fallbackInput[0].text, /^Review PR .*\/pull\/6.*read-only/);
+  assert.match(fallbackInput[0].text, /^Please review .*\/pull\/6.*read-only/);
 
   await app.stop('test restart');
   app = await startReviewRelay(env);

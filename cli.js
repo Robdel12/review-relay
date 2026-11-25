@@ -153,7 +153,7 @@ async function hook(provider = 'codex') {
         output.hookSpecificOutput = {
           hookEventName: event,
           additionalContext: [
-            'Review Relay found new GitHub activity in this session. Address it when it fits the user’s current request. Otherwise mention it briefly and continue with their task.',
+            'There’s new GitHub activity for the PR linked to this chat. Address it when it fits the user’s current request. Otherwise mention it briefly and continue with their task.',
             ...messages,
           ].join('\n\n'),
         };

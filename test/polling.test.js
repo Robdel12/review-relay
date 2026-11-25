@@ -373,10 +373,7 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
     const authorFollowUps = rows.filter((row) => row.chat === authorChat).map((row) => row.message);
     const authorMessages = authorFollowUps.join('\n');
     assert.match(authorMessages, /you may commit.*push them to the existing PR branch/);
-    assert.match(
-      authorMessages,
-      /Leave replies and thread resolutions to the person running Review Relay/,
-    );
+    assert.match(authorMessages, /Leave replies and thread resolutions for me/);
     const changesContext = authorFollowUps.find((message) =>
       message.includes('#pullrequestreview-12'),
     );
@@ -386,7 +383,7 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
     );
     assert.match(changesContext, /Skip anyone with a pending review request/);
     const inlineContext = authorFollowUps.find((message) => message.includes('#discussion_r15'));
-    assert.match(inlineContext, /Leave review requests to the person running Review Relay/);
+    assert.match(inlineContext, /Leave review requests for me/);
     const feedbackLinks = Array.from(
       authorMessages.matchAll(/#(?:pullrequestreview-\d+|discussion_r\d+)/g),
       (match) => match[0],
@@ -400,6 +397,9 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
     const reviewerMessages = rows.filter((row) => row.chat === reviewerChat);
     assert.equal(reviewerMessages.length, 1);
     assert.match(reviewerMessages[0].message, /Keep the review read-only/);
+    assert.match(reviewerMessages[0].message, /report your findings to me in this chat/);
+    assert.match(reviewerMessages[0].message, /Wait for my approval before posting/);
+    assert.doesNotMatch(reviewerMessages[0].message, /Review Relay/);
     const retry = (event) =>
       fetch(`${origin}/api/retry/${event.id}`, {
         method: 'POST',

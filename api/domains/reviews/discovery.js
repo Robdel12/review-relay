@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { defaultReviewSkill, loginName, repoName, skillName } from '../../../protocol.js';
-import { prURL } from './feedback.js';
+import { firstReviewMessage } from './feedback.js';
 import { InputError } from './input-error.js';
 import { initialWatch } from './reviews.machine.js';
 
@@ -138,7 +138,7 @@ export function createDiscovery({
         cwd,
         skillName: selectedSkill,
         title: `🔎 PR: ${pr.title} (#${number})`,
-        prompt: `Review PR ${prURL(fields)}. Confirm GitHub still requests my review. Keep the review read-only and report your findings in this chat. Ask me before posting to GitHub or changing the pull request.`,
+        prompt: firstReviewMessage(fields),
       });
       const watch = {
         ...fields,
