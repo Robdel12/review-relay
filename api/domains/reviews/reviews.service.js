@@ -13,6 +13,7 @@ export function createReviewsService({
   relay,
   wake,
   polling,
+  discoveryStatus,
   logger,
 }) {
   const interval = async (rows) =>
@@ -66,6 +67,7 @@ export function createReviewsService({
   const watches = createWatches({ store, github, watchChanged });
 
   const discovery = createDiscovery({
+    status: discoveryStatus,
     store,
     github,
     agents,

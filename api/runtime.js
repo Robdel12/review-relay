@@ -59,6 +59,7 @@ export async function startReviewRelay(env = process.env) {
           origin: () => origin,
         }),
         polling: { checking: false, error: false, lastPoll: null },
+        discoveryStatus: { result: null },
         wake: {
           discoverAt: (at) => worker.discoverAt(at),
           pollAt: (at) => worker.pollAt(at),

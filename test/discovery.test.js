@@ -88,6 +88,7 @@ test('starts fresh review chats, links the actual agent session, and remembers l
       let body;
       if (endpoint === 'user') body = { login: 'rob' };
       if (endpoint.startsWith('search/issues?q=')) {
+        if (fixture.searchUnavailable) process.exit(4);
         const q = new URLSearchParams(endpoint.split('?')[1]).get('q');
         if (!q.includes('repo:example/example') || !q.includes('review-requested:rob')) process.exit(2);
         body = { items: Object.keys(fixture).map((key) => ({ number: Number(key) })) };
@@ -179,6 +180,12 @@ test('starts fresh review chats, links the actual agent session, and remembers l
     assert.equal(response.status, status, JSON.stringify(result));
     return result;
   }
+  async function snapshot() {
+    const response = await fetch(`${app.origin}/api/state`, { signal: t.signal });
+    assert.equal(response.status, 200);
+    return response.json();
+  }
+
   async function waitFor(accept) {
     const cancel = new AbortController();
     const response = await fetch(`${app.origin}/stream`, {
@@ -214,12 +221,23 @@ test('starts fresh review chats, links the actual agent session, and remembers l
     { provider: 'codex', cwd: directory, repo: 'example/other' },
     400,
   );
+  github.searchUnavailable = true;
+  await publish();
   await post('/api/review-discovery', {
     provider: 'codex',
     cwd: directory,
     repo: 'Example/Example',
   });
-  const enabled = await waitFor((view) => view.reviewDiscovery?.lastCheck);
+  await waitFor((view) => view.reviewDiscovery?.error);
+  assert.equal((await snapshot()).reviewDiscovery.error, true);
+  delete github.searchUnavailable;
+  await publish();
+  const enabled = await waitFor(
+    (view) => view.reviewDiscovery?.lastCheck && !view.reviewDiscovery.error,
+  );
+  const recovered = (await snapshot()).reviewDiscovery;
+  assert.equal(recovered.error, false);
+  assert.ok(recovered.lastCheck >= enabled.reviewDiscovery.lastCheck);
   assert.deepEqual(enabled.links, []);
   assert.equal(enabled.reviewDiscovery.repo, repo);
 

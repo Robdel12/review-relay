@@ -340,8 +340,19 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
     await publish();
     await waitFor((view) => hasEvent(view, 1, 'comment', 'queued'));
     await stop();
+    github.comments[1].push({
+      id: 16,
+      created_at: new Date().toISOString(),
+      user: { login: 'colleague' },
+    });
+    await publish();
     await start();
-    await waitFor((view) => view.delivery.lastPoll);
+    await waitFor(
+      (view) =>
+        view.events.filter(
+          (event) => event.number === 1 && event.kind === 'comment' && event.status === 'queued',
+        ).length === 2,
+    );
     github.pulls[1] = {
       ...pull(1),
       state: 'closed',
@@ -382,6 +393,7 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
     );
     assert.deepEqual(feedbackLinks.sort(), [
       '#discussion_r15',
+      '#discussion_r16',
       '#pullrequestreview-12',
       '#pullrequestreview-14',
     ]);

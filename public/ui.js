@@ -266,6 +266,11 @@ function render(data) {
   const discoveryStatus = $('discovery-status');
   const notice = discoveryMessage(reviewDiscovery);
   if (discoveryStatus.textContent !== notice) discoveryStatus.textContent = notice;
+  const lastCheck = $('discovery-last-check');
+  lastCheck.hidden = !reviewDiscovery?.lastCheck;
+  lastCheck.textContent = lastCheck.hidden
+    ? ''
+    : `Last checked ${dates.format(reviewDiscovery.lastCheck)}.`;
   if (linksChanged) renderLinks(links, delivery.mode);
   if (eventsChanged) {
     $('events').replaceChildren(

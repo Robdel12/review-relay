@@ -20,6 +20,10 @@ function sameTarget(current, next) {
   );
 }
 
+function sameConfiguration(left, right) {
+  return sameTarget(left, right) && left?.since === right?.since;
+}
+
 async function saveReviewLink(rows, watch) {
   const current = await rows.openWatch(watch.repo, watch.number);
   if (!current) {
@@ -33,22 +37,41 @@ async function saveReviewLink(rows, watch) {
   return current.id;
 }
 
-export function createDiscovery({ store, github, agents, interval, wake, watchChanged, changed }) {
-  let checking = false;
-  let lastCheck = null;
-  let error = false;
+export function createDiscovery({
+  status,
+  store,
+  github,
+  agents,
+  interval,
+  wake,
+  watchChanged,
+  changed,
+}) {
+  function resultFor(config) {
+    return sameConfiguration(status.result?.config, config) ? status.result : null;
+  }
 
   async function view(rows) {
     const config = await preference(rows);
     if (!config) return null;
+    const result = resultFor(config);
     const unresolved = await rows.unresolvedReviewStart(config.repo);
-    return { ...config, lastCheck, error, unresolved };
+    return {
+      ...config,
+      lastCheck: result?.lastCheck ?? null,
+      error: result?.error ?? false,
+      unresolved,
+    };
   }
 
-  function schedule(delay) {
+  function schedule(delay, checkedConfig) {
     return store.transaction(async (rows) => {
-      const enabled = !checking && (await preference(rows));
-      wake.discoverAt(enabled ? Date.now() + (delay ?? (await interval(rows))) : null);
+      const config = await preference(rows);
+      if (!config) return wake.discoverAt(null);
+      const targetChanged =
+        checkedConfig !== undefined && !sameConfiguration(checkedConfig, config);
+      const wait = targetChanged ? 0 : (delay ?? (await interval(rows)));
+      wake.discoverAt(Date.now() + wait);
     });
   }
 
@@ -86,11 +109,7 @@ export function createDiscovery({ store, github, agents, interval, wake, watchCh
       await rows.set(discoveryKey, JSON.stringify(next && { ...next, since: Date.now() }));
       return true;
     });
-    if (targetChanged) {
-      lastCheck = null;
-      error = false;
-      await schedule(0);
-    }
+    if (targetChanged) await schedule(0);
     changed();
   }
 
@@ -104,7 +123,7 @@ export function createDiscovery({ store, github, agents, interval, wake, watchCh
     const created = Date.now();
     const id = randomUUID();
     const selectedSkill = await store.transaction(async (rows) => {
-      if (JSON.stringify(await preference(rows)) !== JSON.stringify(config)) return false;
+      if (!sameConfiguration(await preference(rows), config)) return false;
       if (!(await rows.hasWatchCapacity()) || (await rows.trackedReview(fields))) {
         return false;
       }
@@ -158,10 +177,9 @@ export function createDiscovery({ store, github, agents, interval, wake, watchCh
   }
 
   async function run(logger, notify) {
-    if (checking) return;
-    checking = true;
+    let config;
     try {
-      const config = await store.transaction(preference);
+      config = await store.transaction(preference);
       if (!config) return;
       const checkout = await github.checkout(config.cwd);
       if (
@@ -182,14 +200,14 @@ export function createDiscovery({ store, github, agents, interval, wake, watchCh
           logger.warn('review-discovery.pr.failed', { number });
         }
       }
-      lastCheck = Date.now();
-      error = failed;
+      status.result = { config, lastCheck: Date.now(), error: failed };
     } catch {
-      error = true;
+      if (config) {
+        status.result = { config, lastCheck: resultFor(config)?.lastCheck ?? null, error: true };
+      }
       logger.warn('review-discovery.check.failed');
     } finally {
-      checking = false;
-      await schedule();
+      await schedule(undefined, config);
       changed();
     }
   }
