@@ -302,7 +302,6 @@ function openSettings(showRelay = false) {
   $('review-cwd').value = state?.reviewDiscovery?.cwd ?? '';
   $('review-repo').value = state?.reviewDiscovery?.repo ?? '';
   $('review-skill').value = state?.reviewSkill ?? '';
-  $('auto-open-codex').checked = state?.autoOpenCodex ?? false;
   $('discovery-options').open = !showRelay && Boolean(state?.reviewDiscovery);
   syncDiscoveryFields();
   $('settings-dialog').showModal();
@@ -340,10 +339,7 @@ form('link-form', '/api/links', 'Pull request linked.');
 form('poll-form', '/api/polling', 'Polling interval saved.', (form) => ({
   minutes: form.elements.minutes.valueAsNumber,
 }));
-form('discovery-form', '/api/review-discovery', 'Review chat settings saved.', (form) => ({
-  ...Object.fromEntries(new FormData(form)),
-  autoOpenCodex: form.elements.autoOpenCodex.checked,
-}));
+form('discovery-form', '/api/review-discovery', 'Review chat settings saved.');
 form('relay-form', '/api/pair', 'Connecting to the relay.');
 const stream = new EventSource('/stream');
 stream.onmessage = (event) => render(JSON.parse(event.data));

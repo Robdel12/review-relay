@@ -17,7 +17,7 @@ Review Relay uses your existing `gh` login to check linked PRs every two minutes
 
 Polling catches up once your Mac is awake and can reach GitHub. The next check reads activity for open PRs back to when you linked them and skips deliveries already in the inbox. Review requests must still be open and assigned to you. You can see the last check for fresh requests in **Settings → Review chats**.
 
-Review Relay adds a follow-up to the linked Codex chat's queue. If the chat is closed, open it in Codex to pick up the follow-up. This keeps the chat's stop and steer controls available where it runs. Claude Code picks up waiting feedback when you resume the linked session or send your next prompt. With `terminal-notifier` installed, you also get a macOS notification when feedback arrives.
+Review Relay queues follow-ups in the linked Codex chat and opens it in the background. You can stop or steer the turn in Codex. macOS keeps your foreground app in place, and Codex can switch its selected chat. Claude Code picks up waiting feedback when you resume the linked session or send your next prompt. With `terminal-notifier` installed, you also get a macOS notification when feedback arrives.
 
 For your own PR, the agent can fix feedback in a clean checkout, run focused tests, and commit and push the fixes to the PR branch. After pushing, it can request re-review from the reviewers whose requested changes it addressed. You handle replies and thread resolutions. For a PR you review, the agent checks what changed and drafts its findings in the session. Keep the dashboard on your Mac and use author watches with repositories and reviewers you trust.
 
@@ -56,13 +56,11 @@ Open the [dashboard](http://127.0.0.1:4317) to see your watches and their delive
 
 In **Settings → Review chats**, pick Codex or Claude Code and enter the full path to a trusted GitHub checkout. You can enter the GitHub repository as `owner/repo` or leave it blank to use the checkout’s origin. Review Relay checks that repository for direct review requests to your `gh` account. It starts a chat for requests made after you enable the setting. Previously reviewed or linked PRs keep their existing workflow.
 
-Review Relay creates the Codex chat and queues the first prompt with GPT-6.2 Sol. Open the chat in Codex Desktop to start the review and use the normal stop and steer controls. Claude Code uses Opus 5.5 in a background session. For Claude, open the checkout in Claude Code once and accept its trust prompt, then use **Copy attach command** to join the session from a terminal. Your account needs access to the selected model. The new agent drafts its review in the chat and asks before posting anything to GitHub.
+Review Relay creates the Codex chat, queues the first prompt with GPT-6.2 Sol, and opens the chat in the background to start the review. Claude Code uses Opus 5.5 in a background session. For Claude, open the checkout in Claude Code once and accept its trust prompt, then use **Copy attach command** to join the session from a terminal. Your account needs access to the selected model. The new agent drafts its review in the chat and asks before posting anything to GitHub.
 
 Set **Review skill** to the name of a skill in your Codex or Claude Code user settings. The default is `pull-request-review`. Claude Code can also use the copy in your Codex settings. If the skill is missing, Review Relay uses a plain read-only prompt. The setting applies to new review chats and re-review prompts.
 
 New review chats appear in the **Delivery log**. Click **Open new review chat** to jump to Codex or copy the Claude Code command. The chat appears in your Codex project if its root matches the checkout you selected. Otherwise, look under **Tasks**.
-
-Turn on **Open queued chats in Codex** in **Settings → Review chats** to open new reviews and follow-ups automatically. macOS opens them without bringing Codex to the foreground. This can switch the selected chat in Codex.
 
 Fresh requests are checked on the same interval as linked PRs, even when linked PRs use a push relay. If a launch can’t be confirmed, check Settings for the PR number. You can link that review manually.
 

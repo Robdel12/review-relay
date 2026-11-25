@@ -115,6 +115,7 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
         PR_CHAT_LEGACY: legacy,
         PR_CHAT_GH: gh,
         PR_CHAT_CODEX: codex,
+        PR_CHAT_OPEN: '/usr/bin/true',
         PR_CHAT_NOTIFIER: join(temp, 'disabled-notifier'),
         PR_CHAT_BATCH_MS: '100',
         PR_CHAT_POLL_MS: '150',

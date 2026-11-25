@@ -121,7 +121,6 @@ export const reviewDiscovery = mutation(
     cwd: z.string().optional(),
     repo: z.string().optional(),
     skill: z.string().optional(),
-    autoOpenCodex: z.boolean().optional(),
   }),
   (reviews, body) => reviews.discovery.configure(body),
 );

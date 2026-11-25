@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { defaultReviewSkill, normalizeLink, uuid } from '../../../protocol.js';
 
-const autoOpenCodexKey = 'auto-open-codex';
 const reviewSkillKey = 'review-skill';
 const deliveryModeKey = 'delivery-mode';
 export const maxActiveWatches = 100;
@@ -26,8 +25,6 @@ function queries(db) {
     set,
     deliveryMode: async () => (await setting(deliveryModeKey)) ?? 'polling',
     setDeliveryMode: (mode) => set(deliveryModeKey, mode),
-    autoOpenCodex: async () => (await setting(autoOpenCodexKey)) === '1',
-    setAutoOpenCodex: (enabled) => set(autoOpenCodexKey, enabled ? '1' : '0'),
     reviewSkill: async () => (await setting(reviewSkillKey)) ?? defaultReviewSkill,
     setReviewSkill: (name) => set(reviewSkillKey, name),
     async trackedReview(fields) {

@@ -62,6 +62,7 @@ require('node:fs').appendFileSync(${JSON.stringify(deliveries)}, JSON.stringify(
     PR_CHAT_LEGACY: join(temp, 'no-legacy'),
     PR_CHAT_GH: gh,
     PR_CHAT_CODEX: codex,
+    PR_CHAT_OPEN: '/usr/bin/true',
     PR_CHAT_NOTIFIER: join(temp, 'no-notifier'),
     PR_CHAT_ALLOW_HTTP: '1',
     PR_CHAT_BATCH_MS: '0',
