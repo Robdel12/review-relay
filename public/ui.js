@@ -47,12 +47,15 @@ function anchor(url, content, name) {
 function resumeButton(link, label, style) {
   const button = node('button', style, label);
   button.type = 'button';
-  button.setAttribute('aria-label', `Copy Claude Code resume command for PR #${link.number}`);
+  const verb = link.attach_id ? 'attach' : 'resume';
+  button.setAttribute('aria-label', `Copy Claude Code ${verb} command for PR #${link.number}`);
   button.addEventListener('click', async () => {
-    const command = `claude --resume ${link.thread}`;
+    const command = link.attach_id
+      ? `claude attach ${link.attach_id}`
+      : `claude --resume ${link.thread}`;
     try {
       await navigator.clipboard.writeText(command);
-      toast('Resume command copied.');
+      toast('Claude Code command copied.');
     } catch {
       toast(command);
     }
@@ -103,9 +106,10 @@ function row(link) {
     metadata.append(node('span', null, 'Waiting for relay'));
   title.append(metadata);
   const actions = node('div', 'pr-options');
-  if (link.provider === 'claude')
-    actions.append(resumeButton(link, 'Copy resume command', 'chat-link'));
-  else {
+  if (link.provider === 'claude') {
+    const label = link.attach_id ? 'Copy attach command' : 'Copy resume command';
+    actions.append(resumeButton(link, label, 'chat-link'));
+  } else {
     const chat = anchor(`codex://threads/${link.thread}`, 'Open chat', 'chat-link');
     chat.setAttribute('aria-label', `Open chat for PR #${link.number}`);
     actions.append(chat);
@@ -201,6 +205,18 @@ function render(data) {
     JSON.stringify(state?.links) !== JSON.stringify(links);
   const eventsChanged = JSON.stringify(state?.events) !== JSON.stringify(events);
   state = data;
+  const { reviewDiscovery } = data;
+  const discoveryStatus = $('discovery-status');
+  const discoveryMessage = reviewDiscovery?.unresolved
+    ? `Check PR #${reviewDiscovery.unresolved.number} in your agent. Review Relay couldn't confirm its chat started.`
+    : reviewDiscovery?.error
+      ? 'Check your GitHub login and repository checkout. Review Relay will retry.'
+      : reviewDiscovery
+        ? `Watching ${reviewDiscovery.repo} for requests to @${reviewDiscovery.login}.`
+        : '';
+  if (discoveryStatus.textContent !== discoveryMessage) {
+    discoveryStatus.textContent = discoveryMessage;
+  }
   const polling = delivery.mode === 'polling';
   if (linksChanged) renderLinks(links);
   if (eventsChanged) {
@@ -247,10 +263,22 @@ function render(data) {
 }
 
 $('new-link').addEventListener('click', () => $('link-dialog').showModal());
+function syncDiscoveryFields() {
+  const enabled = $('review-provider').value !== 'off';
+  $('review-checkout').hidden = !enabled;
+  $('review-cwd').required = enabled;
+  $('review-cwd').disabled = !enabled;
+}
+$('review-provider').addEventListener('change', syncDiscoveryFields);
+
 function openSettings(showRelay = false) {
   $('poll-minutes').value = state ? Math.round(state.delivery.interval / 60000) : '';
   $('relay-form').elements.url.value = state?.relay.url ?? '';
   $('relay-options').open = showRelay;
+  $('review-provider').value = state?.reviewDiscovery?.provider ?? 'off';
+  $('review-cwd').value = state?.reviewDiscovery?.cwd ?? '';
+  $('discovery-options').open = !showRelay && Boolean(state?.reviewDiscovery);
+  syncDiscoveryFields();
   $('settings-dialog').showModal();
 }
 $('settings-control').addEventListener('click', () => openSettings());
@@ -286,6 +314,7 @@ form('link-form', '/api/links', 'Pull request linked.');
 form('poll-form', '/api/polling', 'Polling interval saved.', (form) => ({
   minutes: form.elements.minutes.valueAsNumber,
 }));
+form('discovery-form', '/api/review-discovery', 'Fresh review chat settings saved.');
 form('relay-form', '/api/pair', 'Connecting to the relay.');
 const stream = new EventSource('/stream');
 stream.onmessage = (event) => render(JSON.parse(event.data));

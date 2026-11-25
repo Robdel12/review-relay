@@ -41,6 +41,18 @@ export const pollReviews = defineJob({
   },
 });
 
+export const discoverReviews = defineJob({
+  name: 'reviews.discover',
+  input: empty,
+  queue: wakeQueue,
+  state: state.derived({ from: ['links', 'review_starts', 'settings'] }),
+  async run({ services: { reviews }, logger, jobs }) {
+    await reviews.discovery.run(logger, (id) =>
+      jobs.enqueue(notifyAgent, { id, reason: 'review-started' }),
+    );
+  },
+});
+
 export const dispatchFeedback = defineJob({
   name: 'reviews.deliver',
   input: empty,
@@ -86,6 +98,7 @@ export const dispatchFeedback = defineJob({
 const notifications = Object.freeze({
   'claude-feedback': 'New GitHub feedback. Resume the linked Claude Code session.',
   'claude-requeued': 'GitHub feedback was requeued. Resume the linked Claude Code session.',
+  'review-started': 'GitHub requested your review. A new review chat is linked.',
   'codex-requested': 'Your review was requested. Open the linked chat.',
   'codex-feedback': 'New feedback was queued. Open the linked chat.',
 });

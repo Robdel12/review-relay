@@ -412,7 +412,8 @@ form label {
   font-size: 13px;
   font-weight: 650;
 }
-form input {
+form input,
+form select {
   display: block;
   margin-top: 4px;
   width: 100%;

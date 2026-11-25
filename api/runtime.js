@@ -13,6 +13,7 @@ import { startReviewWorker } from './workers/local.js';
 
 export async function startReviewRelay(env = process.env) {
   const home = homedir();
+  const codexHome = env.CODEX_HOME || join(home, '.codex');
   const directory = stateDirectory(env);
   const legacyPath = env.PR_CHAT_LEGACY || join(home, '.local/state/pr-chat-watch/links.json');
   const legacy = existsSync(legacyPath) ? JSON.parse(readFileSync(legacyPath, 'utf8')) : {};
@@ -47,11 +48,23 @@ export async function startReviewRelay(env = process.env) {
         agents: createAgents({
           codex:
             env.PR_CHAT_CODEX || join(home, '.codex/packages/app-server-daemon/current/bin/codex'),
+          codexSocket:
+            env.PR_CHAT_CODEX_SOCKET ||
+            join(codexHome, 'app-server-control/app-server-control.sock'),
+          codexSkill:
+            env.PR_CHAT_CODEX_REVIEW_SKILL ||
+            join(codexHome, 'skills/pull-request-review/SKILL.md'),
+          claude: env.PR_CHAT_CLAUDE || join(home, '.local/bin/claude'),
+          claudeSkill: join(
+            env.CLAUDE_CONFIG_DIR || join(home, '.claude'),
+            'skills/pull-request-review/SKILL.md',
+          ),
           notifier: env.PR_CHAT_NOTIFIER || '/opt/homebrew/bin/terminal-notifier',
           origin: () => origin,
         }),
         polling: { checking: false, error: false, lastPoll: null },
         wake: {
+          discoverAt: (at) => worker.discoverAt(at),
           pollAt: (at) => worker.pollAt(at),
           deliverAt: (at) => worker.deliverAt(at),
           notify: (id, reason) => worker.notify(id, reason),
@@ -78,7 +91,11 @@ export async function startReviewRelay(env = process.env) {
   const { reviews } = server.services;
   try {
     await reviews.connectRelay();
-    await Promise.all([reviews.schedulePoll(0), reviews.scheduleDelivery()]);
+    await Promise.all([
+      reviews.schedulePoll(0),
+      reviews.scheduleDelivery(),
+      reviews.discovery.schedule(0),
+    ]);
   } catch (error) {
     await server.stop('startup failure');
     throw error;

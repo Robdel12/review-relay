@@ -1,5 +1,6 @@
 import { startCricketWorker } from '@robdel12/cricket/jobs';
 import {
+  discoverReviews,
   dispatchFeedback,
   notifyAgent,
   pollReviews,
@@ -30,6 +31,7 @@ export async function startReviewWorker(app, signal) {
   }
 
   return Object.freeze({
+    discoverAt: (at) => schedule(discoverReviews, at),
     pollAt: (at) => schedule(pollReviews, at),
     deliverAt: (at) => schedule(dispatchFeedback, at),
     notify: (id, reason) => enqueue(notifyAgent, { id, reason }),

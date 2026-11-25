@@ -1,3 +1,4 @@
+import { createDiscovery } from './discovery.js';
 import { createInbox } from './inbox.js';
 import { InputError } from './input-error.js';
 import { isRetryable } from './reviews.machine.js';
@@ -33,6 +34,7 @@ export function createReviewsService({
         lastPoll: polling.lastPoll,
         error: polling.error,
       },
+      reviewDiscovery: await discovery.view(rows),
       relay: { ...relay.view(), url: (await rows.setting('relay-url')) ?? null },
     }));
   const changed = () => void dashboard.publish(view);
@@ -60,6 +62,16 @@ export function createReviewsService({
   });
   const watches = createWatches({ store, github, watchChanged });
 
+  const discovery = createDiscovery({
+    store,
+    github,
+    agents,
+    interval,
+    wake,
+    watchChanged,
+    changed,
+  });
+
   async function setPolling(minutes) {
     if (!Number.isInteger(minutes) || minutes < 1 || minutes > 60) {
       throw new InputError('Enter a whole number from 1 to 60 minutes.');
@@ -68,7 +80,7 @@ export function createReviewsService({
       await rows.set('poll-interval-ms', String(minutes * 60_000));
       return { interval: await interval(rows) };
     });
-    await schedulePoll();
+    await Promise.all([schedulePoll(), discovery.schedule()]);
     changed();
     return updated;
   }
@@ -163,6 +175,7 @@ export function createReviewsService({
     view,
     subscribe: () => dashboard.subscribe(view),
     setPolling,
+    discovery,
     pair,
     cutover,
     connectRelay,

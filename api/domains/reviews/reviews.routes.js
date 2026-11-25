@@ -106,6 +106,13 @@ export const polling = mutation(
   (reviews, { minutes }) => reviews.setPolling(minutes),
 );
 
+export const reviewDiscovery = mutation(
+  '/api/review-discovery',
+  'Configure fresh review chats',
+  z.object({ provider: z.enum(['off', 'codex', 'claude']), cwd: z.string().optional() }),
+  (reviews, body) => reviews.discovery.configure(body),
+);
+
 export const pair = mutation(
   '/api/pair',
   'Pair a webhook relay',

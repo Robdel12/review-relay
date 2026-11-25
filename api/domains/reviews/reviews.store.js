@@ -4,6 +4,7 @@ import { normalizeLink, uuid } from '../../../protocol.js';
 function queries(db) {
   const settings = () => db('settings');
   const watches = () => db('links');
+  const reviewStarts = () => db('review_starts');
   const deliveries = () => db('events');
   const openWatches = () => watches().where({ status: 'open' }).orderBy('created', 'desc');
   const codexPending = () =>
@@ -16,6 +17,26 @@ function queries(db) {
       return (await settings().where({ key }).first('value'))?.value;
     },
     set: (key, value) => settings().insert({ key, value }).onConflict('key').merge(),
+    async trackedReview(fields) {
+      return Boolean(
+        (await watches().where(fields).first('id')) ||
+          (await reviewStarts().where(fields).first('number')),
+      );
+    },
+    addReviewStart: (start) => reviewStarts().insert(start),
+    setReviewStart: (fields, status) => reviewStarts().where(fields).update({ status }),
+    unresolvedReviewStart: async (repo) =>
+      (await reviewStarts()
+        .where({ repo })
+        .whereIn('status', ['failed', 'starting'])
+        .whereNotExists(
+          watches()
+            .whereColumn('links.repo', 'review_starts.repo')
+            .whereColumn('links.number', 'review_starts.number'),
+        )
+        .orderBy('created', 'desc')
+        .first('number', 'status')) ?? null,
+    setAttachId: (id, attach_id) => watches().where({ id }).update({ attach_id }),
     addWatch: (watch) => watches().insert(watch).onConflict().ignore(),
     watch: (id) => watches().where({ id }).first(),
     openWatch: (repo, number) => openWatches().where({ repo, number }).first(),
@@ -37,6 +58,7 @@ function queries(db) {
           'links.repo',
           'links.number',
           'links.thread',
+          'links.attach_id',
           'links.role',
           'links.provider',
           'links.status as watchStatus',

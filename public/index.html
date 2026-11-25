@@ -134,6 +134,28 @@
         </div>
         <p class="error" role="alert"></p>
       </form>
+      <details class="link-options relay-options" id="discovery-options">
+        <summary>Fresh review chats</summary>
+        <form id="discovery-form">
+          <p class="dialog-copy">Open and link a chat when GitHub asks you to review a new PR.</p>
+          <label for="review-provider">Open in</label>
+          <select name="provider" id="review-provider">
+            <option value="off">Off</option>
+            <option value="codex">Codex · GPT-6.2 Sol</option>
+            <option value="claude">Claude Code · Opus 5.5</option>
+          </select>
+          <div id="review-checkout" hidden>
+            <label for="review-cwd">Repository checkout</label>
+            <input id="review-cwd" name="cwd" placeholder="/path/to/repository">
+            <small>Use the full path to a checkout you trust.</small>
+          </div>
+          <p class="dialog-copy" id="discovery-status" role="status"></p>
+          <p class="error" role="alert"></p>
+          <div class="dialog-actions">
+            <button class="primary" type="submit">Save</button>
+          </div>
+        </form>
+      </details>
       <details class="link-options relay-options" id="relay-options">
         <summary>Push relay</summary>
         <form id="relay-form">
