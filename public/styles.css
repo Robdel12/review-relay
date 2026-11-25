@@ -211,6 +211,16 @@ main.frame {
   border-bottom: 1px solid var(--keyline);
   padding-bottom: 6px;
 }
+.pull-requests-heading {
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
+}
+.heading-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 h1 {
   font-size: 21px;
   letter-spacing: -0.035em;
@@ -396,13 +406,13 @@ dialog::backdrop {
   font-size: 22px;
   line-height: 1;
 }
-label {
+form label {
   display: block;
   margin-top: 12px;
   font-size: 13px;
   font-weight: 650;
 }
-input {
+form input {
   display: block;
   margin-top: 4px;
   width: 100%;
@@ -476,6 +486,46 @@ kbd {
   font-size: 13px;
 }
 
+.role-filters {
+  display: flex;
+  gap: 3px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.role-option {
+  position: relative;
+  cursor: pointer;
+}
+.role-filters input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.role-filters span {
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+  padding-inline: 9px;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+.role-option:hover span {
+  background: var(--hover);
+}
+.role-filters input:checked + span {
+  border-color: var(--green);
+  color: var(--green);
+}
+.role-filters input:focus-visible + span {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
+
 @media (max-width: 700px) {
   .frame {
     width: calc(100% - 32px);
@@ -502,6 +552,9 @@ kbd {
   }
   .relay-button {
     gap: 5px;
+  }
+  .role-filters span {
+    min-height: 34px;
   }
   .pr-row {
     gap: 5px;

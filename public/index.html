@@ -33,9 +33,27 @@
       </div>
       <div class="columns">
         <section class="pull-requests" aria-labelledby="links-title">
-          <div class="section-heading">
-            <h1 id="links-title">Linked pull requests</h1>
-            <span class="count" id="active-count"></span>
+          <div class="section-heading pull-requests-heading">
+            <div class="heading-label">
+              <h1 id="links-title">Linked pull requests</h1>
+              <span class="count" id="active-count"></span>
+            </div>
+            <fieldset
+              class="role-filters"
+              id="role-filters"
+              aria-label="Filter pull requests by role"
+            >
+              <label class="role-option"
+                ><input type="radio" name="role-filter" value="all" checked><span>All</span></label
+              >
+              <label class="role-option"
+                ><input type="radio" name="role-filter" value="reviewer">
+                <span>Reviewer</span></label
+              >
+              <label class="role-option"
+                ><input type="radio" name="role-filter" value="author"><span>Author</span></label
+              >
+            </fieldset>
           </div>
           <div id="links"></div>
           <details class="archive" id="archive" hidden>

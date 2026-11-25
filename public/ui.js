@@ -14,6 +14,11 @@ const dates = new Intl.DateTimeFormat(undefined, {
   minute: '2-digit',
 });
 const linkRole = { author: 'Author', reviewer: 'Reviewer' };
+const emptyLinks = {
+  all: 'No linked pull requests.',
+  reviewer: 'No linked PRs to review.',
+  author: 'No linked PRs you authored.',
+};
 const statusLabels = {
   pending: 'Waiting',
   queued: 'Queued in Codex',
@@ -170,6 +175,25 @@ function eventRow(event) {
 }
 
 let state;
+const roleFilters = $('role-filters');
+function renderLinks(links) {
+  const role = roleFilters.querySelector('input:checked').value;
+  const visible = role === 'all' ? links : links.filter((link) => link.role === role);
+  const live = visible.filter((link) => link.status === 'open');
+  const archived = visible.filter((link) => link.status !== 'open');
+  $('active-count').textContent = live.length;
+  $('archive-count').textContent = archived.length;
+  $('archive').hidden = !archived.length;
+  $('links').replaceChildren(
+    ...(live.length ? live.map(row) : [node('p', 'empty', emptyLinks[role])]),
+  );
+  $('archived-links').replaceChildren(...archived.map(row));
+}
+
+roleFilters.addEventListener('change', () => {
+  if (state) renderLinks(state.links);
+});
+
 function render(data) {
   const { links, events, relay, delivery } = data;
   const linksChanged =
@@ -178,17 +202,7 @@ function render(data) {
   const eventsChanged = JSON.stringify(state?.events) !== JSON.stringify(events);
   state = data;
   const polling = delivery.mode === 'polling';
-  const live = links.filter((link) => link.status === 'open');
-  if (linksChanged) {
-    const archived = links.filter((link) => link.status !== 'open');
-    $('active-count').textContent = live.length;
-    $('archive-count').textContent = archived.length;
-    $('archive').hidden = !archived.length;
-    $('links').replaceChildren(
-      ...(live.length ? live.map(row) : [node('p', 'empty', 'No linked pull requests.')]),
-    );
-    $('archived-links').replaceChildren(...archived.map(row));
-  }
+  if (linksChanged) renderLinks(links);
   if (eventsChanged) {
     $('events').replaceChildren(
       ...(events.length ? events.map(eventRow) : [node('p', 'empty', 'No deliveries yet.')]),
@@ -223,7 +237,8 @@ function render(data) {
         ? 'The relay will reconnect automatically.'
         : relay.status === 'connected' && !relay.lastWebhook
           ? 'Waiting for the first signed GitHub delivery.'
-          : live.some((link) => link.repo !== relay.repo) && relay.status === 'connected'
+          : relay.status === 'connected' &&
+              links.some((link) => link.status === 'open' && link.repo !== relay.repo)
             ? 'Some PRs belong to a repository outside this relay.'
             : '';
   $('setup').hidden = !message;
