@@ -168,6 +168,19 @@
           <small id="review-skill-help"
             >Use a local skill by name. If it’s missing, Review Relay uses the plain prompt.</small
           >
+          <label class="checkbox-label">
+            <input
+              type="checkbox"
+              name="autoOpenCodex"
+              id="auto-open-codex"
+              aria-describedby="auto-open-codex-help"
+            >
+            Open queued chats in Codex
+          </label>
+          <small id="auto-open-codex-help"
+            >Starts reviews and follow-ups in the background. This can switch the selected chat in
+            Codex.</small
+          >
           <p class="dialog-copy" id="discovery-status" role="status"></p>
           <small id="discovery-last-check" hidden></small>
           <p class="error" role="alert"></p>

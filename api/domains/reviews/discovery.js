@@ -95,13 +95,14 @@ export function createDiscovery({
     return { ...checkout, login, provider };
   }
 
-  async function configure({ skill, ...target }) {
+  async function configure({ skill, autoOpenCodex, ...target }) {
     const selectedSkill = skill === undefined ? undefined : skill.trim() || defaultReviewSkill;
     if (selectedSkill && !skillName.test(selectedSkill)) {
       throw new InputError('Enter a skill name using letters, numbers, hyphens, or underscores.');
     }
     const next = await discoveryTarget(target);
     const targetChanged = await store.transaction(async (rows) => {
+      if (autoOpenCodex !== undefined) await rows.setAutoOpenCodex(autoOpenCodex);
       if (selectedSkill && selectedSkill !== (await rows.reviewSkill())) {
         await rows.setReviewSkill(selectedSkill);
       }

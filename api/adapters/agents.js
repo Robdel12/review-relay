@@ -20,6 +20,7 @@ export function createAgents({
   claude,
   claudeHome,
   notifier,
+  opener,
   origin,
 }) {
   async function queueCodex(link, message) {
@@ -27,6 +28,10 @@ export function createAgents({
       timeout: 20_000,
       env: { ...process.env, CODEX_HOME: codexHome },
     });
+  }
+
+  async function openCodex(link) {
+    await run(opener, ['-g', chatReference(link)], { timeout: 5_000 });
   }
 
   async function notify(link, message) {
@@ -98,5 +103,5 @@ export function createAgents({
     });
   }
 
-  return Object.freeze({ queueCodex, notify, startReview, reviewSkill });
+  return Object.freeze({ queueCodex, openCodex, notify, startReview, reviewSkill });
 }

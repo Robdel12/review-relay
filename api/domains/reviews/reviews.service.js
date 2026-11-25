@@ -36,6 +36,7 @@ export function createReviewsService({
       },
       reviewDiscovery: await discovery.view(rows),
       reviewSkill: await rows.reviewSkill(),
+      autoOpenCodex: await rows.autoOpenCodex(),
       relay: { ...relay.view(), url: (await rows.setting('relay-url')) ?? null },
     }));
   const changed = () => void dashboard.publish(view);
@@ -196,6 +197,10 @@ export function createReviewsService({
     github,
     agents,
     legacy: config.legacy,
-    watchForNotice: (id) => store.transaction((rows) => rows.watch(id)),
+    noticeTarget: (id) =>
+      store.transaction(async (rows) => ({
+        link: await rows.watch(id),
+        autoOpenCodex: await rows.autoOpenCodex(),
+      })),
   });
 }

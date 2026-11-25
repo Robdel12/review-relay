@@ -53,6 +53,7 @@ export async function startReviewRelay(env = process.env) {
           claude: env.PR_CHAT_CLAUDE || join(home, '.local/bin/claude'),
           claudeHome: env.CLAUDE_CONFIG_DIR || join(home, '.claude'),
           notifier: env.PR_CHAT_NOTIFIER || '/opt/homebrew/bin/terminal-notifier',
+          opener: env.PR_CHAT_OPEN || '/usr/bin/open',
           origin: () => origin,
         }),
         polling: { checking: false, error: false, lastPoll: null },

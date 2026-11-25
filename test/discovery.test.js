@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { once } from 'node:events';
+import { watch } from 'node:fs';
 import { mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -34,6 +36,8 @@ test('starts fresh review chats, links the actual agent session, and remembers l
   const claudeLog = join(directory, 'claude.json');
   const codexLog = join(directory, 'codex.jsonl');
   const noticeLog = join(directory, 'notices.jsonl');
+  const opener = join(directory, 'open');
+  const openLog = join(directory, 'opened.jsonl');
   const notifier = join(directory, 'notifier');
   const codexId = randomUUID();
   const fallbackId = randomUUID();
@@ -113,6 +117,13 @@ test('starts fresh review chats, links the actual agent session, and remembers l
     `,
     ),
     executable(
+      opener,
+      `
+      const { appendFileSync } = require('node:fs');
+      appendFileSync(${JSON.stringify(openLog)}, JSON.stringify(process.argv.slice(2)) + '\\n');
+      `,
+    ),
+    executable(
       notifier,
       `
       const { appendFileSync } = require('node:fs');
@@ -168,6 +179,29 @@ test('starts fresh review chats, links the actual agent session, and remembers l
     ),
   ]);
 
+  async function waitForOpen(thread) {
+    const changes = watch(directory);
+    try {
+      const command = JSON.stringify(['-g', `codex://threads/${thread}`]);
+      for (;;) {
+        const cancel = new AbortController();
+        const signal = AbortSignal.any([t.signal, cancel.signal]);
+        const changed = once(changes, 'change', { signal }).catch((error) => {
+          if (!cancel.signal.aborted) throw error;
+        });
+        try {
+          const log = await readFile(openLog, 'utf8').catch(() => '');
+          if (log.split('\n').includes(command)) break;
+          await changed;
+        } finally {
+          cancel.abort();
+        }
+      }
+    } finally {
+      changes.close();
+    }
+  }
+
   const requests = async () => (await readFile(rpcLog, 'utf8')).trim().split('\n').map(JSON.parse);
   const env = {
     CODEX_HOME: codexHome,
@@ -176,6 +210,7 @@ test('starts fresh review chats, links the actual agent session, and remembers l
     PR_CHAT_STATE_DIR: join(directory, 'state'),
     PR_CHAT_LEGACY: join(directory, 'no-legacy'),
     PR_CHAT_NOTIFIER: notifier,
+    PR_CHAT_OPEN: opener,
     PR_CHAT_POLL_MS: '150',
     PR_CHAT_BATCH_MS: '100',
     PR_CHAT_GH: gh,
@@ -230,6 +265,7 @@ test('starts fresh review chats, links the actual agent session, and remembers l
   const initial = await waitFor(() => true);
   assert.equal(initial.reviewDiscovery, null);
   assert.equal(initial.reviewSkill, 'pull-request-review');
+  assert.equal(initial.autoOpenCodex, false);
   await post('/api/review-discovery', { provider: 'off', skill: '../review' }, 400);
   await post('/api/review-discovery', { provider: 'codex', cwd: '.' }, 400);
   await post(
@@ -313,7 +349,12 @@ test('starts fresh review chats, links the actual agent session, and remembers l
     path: skill,
   });
 
-  await post('/api/review-discovery', { provider: 'codex', cwd: directory, skill: skillName });
+  await post('/api/review-discovery', {
+    provider: 'codex',
+    cwd: directory,
+    skill: skillName,
+    autoOpenCodex: true,
+  });
   const updated = await waitFor((view) => view.reviewSkill === skillName);
   assert.equal(updated.reviewDiscovery.since, enabled.reviewDiscovery.since);
   request(2, Date.now());
@@ -371,19 +412,27 @@ test('starts fresh review chats, links the actual agent session, and remembers l
     .params.input;
   assert.equal(fallbackInput.length, 1);
   assert.match(fallbackInput[0].text, /^Please review .*\/pull\/6.*read-only/);
+  await waitForOpen(fallbackId);
 
   await app.stop('test restart');
   app = await startReviewRelay(env);
   const restarted = await waitFor((view) => view.reviewDiscovery?.lastCheck);
   assert.deepEqual(restarted.links, fallback.links);
   assert.equal(restarted.reviewSkill, 'missing-review-skill');
+  assert.equal(restarted.autoOpenCodex, true);
+  const opened = (await readFile(openLog, 'utf8')).trim().split('\n').map(JSON.parse);
+  assert.deepEqual(opened, [
+    ['-g', `codex://threads/${codexId}`],
+    ['-g', `codex://threads/${fallbackId}`],
+  ]);
   assert.equal(restarted.events.find((event) => event.id === newReview.id).thread, codexId);
   const notices = (await readFile(noticeLog, 'utf8')).trim().split('\n').map(JSON.parse);
   const newChatNotice = notices.find((args) => args.includes(`codex://threads/${codexId}`));
   assert.ok(newChatNotice?.includes('Open the chat in Codex to start the queued review.'));
   assert.equal((await requests()).filter(({ method }) => method === 'thread/queue/add').length, 2);
   assert.equal((await readFile(claudeLog, 'utf8')).trim().split('\n').length, 1);
-  await post('/api/review-discovery', { provider: 'off', skill: ' ' });
+  await post('/api/review-discovery', { provider: 'off', skill: ' ', autoOpenCodex: false });
   const disabled = await waitFor((view) => !view.reviewDiscovery);
   assert.equal(disabled.reviewSkill, 'pull-request-review');
+  assert.equal(disabled.autoOpenCodex, false);
 });

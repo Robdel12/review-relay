@@ -62,6 +62,8 @@ Set **Review skill** to the name of a skill in your Codex or Claude Code user se
 
 New review chats appear in the **Delivery log**. Click **Open new review chat** to jump to Codex or copy the Claude Code command. The chat appears in your Codex project if its root matches the checkout you selected. Otherwise, look under **Tasks**.
 
+Turn on **Open queued chats in Codex** in **Settings → Review chats** to open new reviews and follow-ups automatically. macOS opens them without bringing Codex to the foreground. This can switch the selected chat in Codex.
+
 Fresh requests are checked on the same interval as linked PRs, even when linked PRs use a push relay. If a launch can’t be confirmed, check Settings for the PR number. You can link that review manually.
 
 ## Link from a chat or the terminal

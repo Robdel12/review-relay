@@ -106,14 +106,23 @@ export const notifyAgent = defineJob({
   name: 'reviews.notify',
   input: z.strictObject({ id: z.string().regex(uuid), reason: z.enum(Object.keys(notifications)) }),
   queue,
-  state: state.derived({ from: ['links'] }),
-  async run({ services: { reviews }, input }) {
-    const link = await reviews.watchForNotice(input.id);
+  state: state.derived({ from: ['links', 'settings'] }),
+  async run({ services: { reviews }, input, logger }) {
+    const { link, autoOpenCodex } = await reviews.noticeTarget(input.id);
     if (link?.status !== 'open') return;
-    const message =
+
+    let message =
       input.reason === 'review-started' && link.provider === 'codex'
         ? 'Open the chat in Codex to start the queued review.'
         : notifications[input.reason];
+    if (link.provider === 'codex' && autoOpenCodex) {
+      try {
+        await reviews.agents.openCodex(link);
+        message = 'Queued in Codex. Follow along in the linked chat.';
+      } catch {
+        logger.warn('codex.open.failed', { number: link.number });
+      }
+    }
     await reviews.agents.notify(link, message);
   },
 });
