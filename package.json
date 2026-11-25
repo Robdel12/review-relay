@@ -19,10 +19,10 @@
   },
   "dependencies": {
     "@robdel12/cricket": "https://codeload.github.com/Robdel12/cricket/tar.gz/5e8cd708d82dfa05bf248fc83b5e4b3659305448",
-    "better-sqlite3": "13.2.0",
-    "ws": "8.22.1"
+    "better-sqlite3": "13.2.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.6.8"
+    "@biomejs/biome": "2.6.8",
+    "ws": "8.22.1"
   }
 }

@@ -112,7 +112,7 @@ export const notifyAgent = defineJob({
     if (link?.status !== 'open') return;
     const message =
       input.reason === 'review-started' && link.provider === 'codex'
-        ? 'Click to open your review in Codex. The chat appears under Tasks.'
+        ? 'Open the chat in Codex to start the queued review.'
         : notifications[input.reason];
     await reviews.agents.notify(link, message);
   },

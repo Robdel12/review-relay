@@ -160,7 +160,7 @@ export function createDiscovery({
           await rows.addDelivery({
             id: `${linkedId}:${randomUUID()}`,
             link: linkedId,
-            kind: 'review-started',
+            kind: provider === 'codex' ? 'review-queued' : 'review-started',
             status: 'linked',
             received: linkedAt,
             ready: linkedAt,

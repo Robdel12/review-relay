@@ -2,11 +2,9 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
-import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
-import { WebSocketServer } from 'ws';
 import { startReviewRelay } from '../api/runtime.js';
 
 test('starts fresh review chats, links the actual agent session, and remembers launches', {
@@ -33,14 +31,15 @@ test('starts fresh review chats, links the actual agent session, and remembers l
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, '# Custom review skill\n');
   }
-  const socket = join(directory, 'codex.sock');
   const claudeLog = join(directory, 'claude.json');
   const codexLog = join(directory, 'codex.jsonl');
   const noticeLog = join(directory, 'notices.jsonl');
   const notifier = join(directory, 'notifier');
   const codexId = randomUUID();
   const fallbackId = randomUUID();
-  const codexThreads = [codexId, fallbackId].values();
+  const rpcLog = join(directory, 'codex-rpc.jsonl');
+  const projectId = 'example-project';
+  await writeFile(rpcLog, '');
   const claudeId = randomUUID();
   const attachId = claudeId.slice(0, 8);
   const github = {};
@@ -123,35 +122,53 @@ test('starts fresh review chats, links the actual agent session, and remembers l
     executable(
       codex,
       `
-      const { appendFileSync } = require('node:fs');
-      appendFileSync(${JSON.stringify(codexLog)}, JSON.stringify(process.argv.slice(2)) + '\\n');
+      const { appendFileSync, readFileSync } = require('node:fs');
+      const { createInterface } = require('node:readline');
+      const args = process.argv.slice(2);
+      if (args[0] === 'queue') {
+        appendFileSync(${JSON.stringify(codexLog)}, JSON.stringify(args) + '\\n');
+      } else if (args.join(' ') === 'app-server --listen stdio://') {
+        if (process.env.CODEX_HOME !== ${JSON.stringify(codexHome)}) process.exit(2);
+        const file = ${JSON.stringify(rpcLog)};
+        const log = (row) => appendFileSync(file, JSON.stringify({ pid: process.pid, ...row }) + '\\n');
+        const readLog = () => readFileSync(file, 'utf8').trim().split('\\n').filter(Boolean).map(JSON.parse);
+        const threads = ${JSON.stringify([codexId, fallbackId])};
+        const results = {
+          initialize: () => ({}),
+          'project/list': () => ({
+            data: [
+              { id: 'unrelated', roots: [{ path: '/another/checkout' }] },
+              { id: '${projectId}', roots: [{ path: process.cwd() }] },
+            ],
+            nextCursor: null,
+          }),
+          'thread/start': () => ({
+            thread: { id: threads[readLog().filter((row) => row.method === 'thread/start').length] },
+          }),
+          'thread/name/set': () => ({}),
+          'thread/read': ({ threadId }) => {
+            const creator = readLog().find((row) => row.method === 'thread/name/set' && row.params.threadId === threadId);
+            const closed = readLog().some((row) => row.pid === creator?.pid && row.method === 'closed');
+            if (!closed) throw new Error('thread still has an active writer');
+            return { thread: { id: threadId } };
+          },
+          'thread/queue/add': () => ({ queuedSubmission: {} }),
+        };
+        createInterface({ input: process.stdin })
+          .on('line', (line) => {
+            const message = JSON.parse(line);
+            if (message.id === undefined) { log(message); return; }
+            const result = results[message.method](message.params);
+            log(message);
+            console.log(JSON.stringify({ id: message.id, result }));
+          })
+          .on('close', () => log({ method: 'closed' }));
+      } else process.exit(1);
     `,
     ),
   ]);
 
-  const requests = [];
-  const http = createServer();
-  const server = new WebSocketServer({ server: http });
-  server.on('connection', (connection) => {
-    connection.on('message', (raw) => {
-      const message = JSON.parse(raw);
-      requests.push(message);
-      if (message.id === undefined) return;
-      const result =
-        message.method === 'thread/start' ? { thread: { id: codexThreads.next().value } } : {};
-      connection.send(JSON.stringify({ id: message.id, result }));
-    });
-  });
-  await new Promise((resolve, reject) => {
-    http.once('error', reject);
-    http.listen(socket, resolve);
-  });
-  t.after(() => {
-    for (const client of server.clients) client.terminate();
-    server.close();
-    return new Promise((resolve) => http.close(resolve));
-  });
-
+  const requests = async () => (await readFile(rpcLog, 'utf8')).trim().split('\n').map(JSON.parse);
   const env = {
     CODEX_HOME: codexHome,
     CLAUDE_CONFIG_DIR: claudeHome,
@@ -163,7 +180,6 @@ test('starts fresh review chats, links the actual agent session, and remembers l
     PR_CHAT_BATCH_MS: '100',
     PR_CHAT_GH: gh,
     PR_CHAT_CODEX: codex,
-    PR_CHAT_CODEX_SOCKET: socket,
     PR_CHAT_CODEX_REVIEW_SKILL: skill,
     PR_CHAT_CLAUDE: claude,
   };
@@ -251,23 +267,44 @@ test('starts fresh review chats, links the actual agent session, and remembers l
     codexView.links.map(({ number, role, provider, thread }) => [number, role, provider, thread]),
     [[2, 'reviewer', 'codex', codexId]],
   );
-  const newReview = codexView.events.find((event) => event.kind === 'review-started');
+  const newReview = codexView.events.find((event) => event.kind === 'review-queued');
   assert.ok(newReview);
   assert.equal(newReview.number, 2);
   assert.equal(newReview.thread, codexId);
   assert.equal(newReview.status, 'linked');
   assert.equal(newReview.canRetry, false);
   await post(`/api/retry/${newReview.id}`, {}, 409);
+  const first = await requests();
   assert.deepEqual(
-    requests.map(({ method }) => method),
-    ['initialize', 'initialized', 'thread/start', 'thread/name/set', 'turn/start'],
+    first.map(({ method }) => method),
+    [
+      'initialize',
+      'initialized',
+      'project/list',
+      'thread/start',
+      'thread/name/set',
+      'closed',
+      'initialize',
+      'initialized',
+      'thread/read',
+      'thread/queue/add',
+      'closed',
+    ],
   );
-  assert.deepEqual(requests[2].params, { cwd: directory, model: 'gpt-6.2-sol' });
-  assert.equal(requests[3].params.name, '🔎 PR: Test PR 2 (#2)');
-  assert.equal(requests[4].params.threadId, codexId);
-  assert.equal(requests[4].params.model, 'gpt-6.2-sol');
-  assert.match(requests[4].params.input[0].text, /\$pull-request-review.*\/pull\/2.*read-only/);
-  assert.deepEqual(requests[4].params.input[1], {
+  const created = first.find(({ method }) => method === 'thread/start');
+  const named = first.find(({ method }) => method === 'thread/name/set');
+  const firstPrompt = first.find(({ method }) => method === 'thread/queue/add');
+  assert.deepEqual(created.params, {
+    cwd: directory,
+    model: 'gpt-6.2-sol',
+    projectId,
+    historyMode: 'paginated',
+  });
+  assert.equal(named.params.name, '🔎 PR: Test PR 2 (#2)');
+  assert.notEqual(firstPrompt.pid, created.pid);
+  assert.equal(firstPrompt.params.threadId, codexId);
+  assert.match(firstPrompt.params.input[0].text, /\$pull-request-review.*\/pull\/2.*read-only/);
+  assert.deepEqual(firstPrompt.params.input[1], {
     type: 'skill',
     name: 'pull-request-review',
     path: skill,
@@ -282,7 +319,7 @@ test('starts fresh review chats, links the actual agent session, and remembers l
     view.events.some(({ number, status }) => number === 2 && status === 'queued'),
   );
   const queued = JSON.parse(await readFile(codexLog, 'utf8'));
-  assert.equal(queued[queued.indexOf('--thread') + 1], codexId);
+  assert.deepEqual(queued.slice(0, 3), ['queue', '--thread', codexId]);
   const followUp = queued[queued.indexOf('--message') + 1];
   assert.ok(followUp.includes(customCodexSkill));
   assert.match(followUp, /review-checklist skill.*read-only/);
@@ -327,7 +364,8 @@ test('starts fresh review chats, links the actual agent session, and remembers l
   request(6, Date.now());
   await publish();
   const fallback = await waitFor((view) => view.links.some(({ thread }) => thread === fallbackId));
-  const fallbackInput = requests.at(-1).params.input;
+  const fallbackInput = (await requests()).findLast(({ method }) => method === 'thread/queue/add')
+    .params.input;
   assert.equal(fallbackInput.length, 1);
   assert.match(fallbackInput[0].text, /^Review PR .*\/pull\/6.*read-only/);
 
@@ -339,10 +377,8 @@ test('starts fresh review chats, links the actual agent session, and remembers l
   assert.equal(restarted.events.find((event) => event.id === newReview.id).thread, codexId);
   const notices = (await readFile(noticeLog, 'utf8')).trim().split('\n').map(JSON.parse);
   const newChatNotice = notices.find((args) => args.includes(`codex://threads/${codexId}`));
-  assert.ok(
-    newChatNotice?.includes('Click to open your review in Codex. The chat appears under Tasks.'),
-  );
-  assert.equal(requests.length, 10);
+  assert.ok(newChatNotice?.includes('Open the chat in Codex to start the queued review.'));
+  assert.equal((await requests()).filter(({ method }) => method === 'thread/queue/add').length, 2);
   assert.equal((await readFile(claudeLog, 'utf8')).trim().split('\n').length, 1);
   await post('/api/review-discovery', { provider: 'off', skill: ' ' });
   const disabled = await waitFor((view) => !view.reviewDiscovery);

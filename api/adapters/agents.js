@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { promisify, stripVTControlCharacters } from 'node:util';
 import { chatReference, defaultReviewSkill, skillName, uuid } from '../../protocol.js';
 import { skillInstruction } from '../domains/reviews/feedback.js';
-import { startCodexReview } from './codex-session.js';
+import { prepareCodexReview } from './codex-session.js';
 
 const run = promisify(execFile);
 
@@ -15,7 +15,6 @@ export const reviewModels = Object.freeze({
 
 export function createAgents({
   codex,
-  codexSocket,
   codexHome,
   codexDefaultSkill,
   claude,
@@ -24,11 +23,10 @@ export function createAgents({
   origin,
 }) {
   async function queueCodex(link, message) {
-    await run(
-      codex,
-      ['queue', '--remote', 'unix://', '--thread', link.thread, '--message', message],
-      { timeout: 20_000 },
-    );
+    await run(codex, ['queue', '--thread', link.thread, '--message', message], {
+      timeout: 20_000,
+      env: { ...process.env, CODEX_HOME: codexHome },
+    });
   }
 
   async function notify(link, message) {
@@ -89,8 +87,9 @@ export function createAgents({
     const model = reviewModels[provider];
     const skill = reviewSkill(provider, skillName);
     if (provider !== 'codex') return startClaudeReview({ cwd, title, prompt, skill, model });
-    return startCodexReview({
-      socketPath: codexSocket,
+    return prepareCodexReview({
+      codex,
+      codexHome,
       cwd,
       title,
       text: skill ? `$${skill.name} ${prompt}` : prompt,

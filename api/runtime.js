@@ -48,9 +48,6 @@ export async function startReviewRelay(env = process.env) {
         agents: createAgents({
           codex:
             env.PR_CHAT_CODEX || join(home, '.codex/packages/app-server-daemon/current/bin/codex'),
-          codexSocket:
-            env.PR_CHAT_CODEX_SOCKET ||
-            join(codexHome, 'app-server-control/app-server-control.sock'),
           codexHome,
           codexDefaultSkill: env.PR_CHAT_CODEX_REVIEW_SKILL,
           claude: env.PR_CHAT_CLAUDE || join(home, '.local/bin/claude'),

@@ -5,6 +5,7 @@ const activity = {
   changes: 'Changes requested',
   requested: 'Review requested',
   'review-started': 'Open new review chat',
+  'review-queued': 'Open new review chat',
   merged: 'Pull request merged',
   closed: 'Pull request closed',
 };
@@ -152,6 +153,9 @@ function eventRow(event) {
       : anchor(`codex://threads/${event.thread}`, activity[event.kind], 'event-label'),
   );
   let status = statusLabels[event.status] ?? event.status;
+  if (event.kind === 'review-queued') {
+    status = 'Queued in Codex';
+  }
   if (event.status === 'pending') {
     status = claude ? 'Waiting for Claude Code' : event.sentAt ? 'Requeueing' : 'Waiting';
   }
